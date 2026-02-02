@@ -54,7 +54,7 @@ The objective of this project is to identify flood-affected areas at district le
 
 ## High Level Architecture Diagram
 
-```
+```mermaid
 flowchart TD
     A["Data Sources<br/>• Sentinel-2 Satellite Data<br/>• District Boundary GeoJSON"]
     B["Data Acquisition Layer<br/>• Access data using GEE<br/>• Select date ranges<br/>• Filter by region"]
