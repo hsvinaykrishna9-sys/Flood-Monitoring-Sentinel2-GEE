@@ -52,6 +52,32 @@ The objective of this project is to identify flood-affected areas at district le
 
 --- 
 
+## High Level Architecture Diagram
+
+```
+flowchart TD
+    A["Data Sources<br/>• Sentinel-2 Satellite Data<br/>• District Boundary GeoJSON"]
+    B["Data Acquisition Layer<br/>• Access data using GEE<br/>• Select date ranges<br/>• Filter by region"]
+    C["Preprocessing Layer<br/>• Cloud filtering<br/>• Image clipping<br/>• Seasonal median composites"]
+    D["Flood Index Computation<br/>• NDWI calculation<br/>• Pre-monsoon NDWI<br/>• Peak-monsoon NDWI"]
+    E["Change Detection Layer<br/>• NDWI Difference Analysis<br/>• Flood extent identification"]
+    F["Output Generation Layer<br/>• Export results as GeoTIFF<br/>• Preserve spatial metadata"]
+    G["Visualization & Analysis<br/>• Import GeoTIFF into QGIS<br/>• Apply color ramps<br/>• Generate flood maps"]
+    H["Final Outputs<br/>• Flood extent maps<br/>• Report & presentation<br/>• GeoTIFF datasets"]
+    
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+    
+    classDef blueBox fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
+    class A,B,C,D,E,F,G,H blueBox
+```
+
+--- 
 ## Technology Stack
 
 - Google Earth Engine (GEE) – satellite data processing
