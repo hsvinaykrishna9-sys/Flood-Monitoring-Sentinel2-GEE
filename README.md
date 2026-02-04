@@ -303,32 +303,3 @@ This project is developed for **academic and research purposes** using open-sour
 
 Licensed under the MIT License - see [LICENSE](LICENSE) file for details.
 
----
-
-## 🙏 Acknowledgments
-
-* **Google Earth Engine** for satellite imagery platform
-* **ESA Copernicus Programme** for Sentinel-2 data
-* **Open-Meteo** for weather data API
-* **Karnataka SDMA** for historical flood records
-* **PES University** for project support
-* **Prof. Pavitra** for guidance and mentorship
-
----
-
-## 📞 Contact
-
-* **GitHub Issues:** [Report bugs or request features](https://github.com/yourusername/Flood-Monitoring-Sentinel2-GEE/issues)
-* **Email:** vinaykrishna@example.com
-* **Project ID:** 138
-
----
-
-<div align="center">
-
-**⭐ Star this repository if you find it helpful!**
-
-**Project ID: 138 | Team: Vinay Krishna, Sujay M, Karthik P, Sudeep A Biradar**  
-**PES University | Department of Computer Science & Engineering | 2024**
-
-</div>
