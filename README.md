@@ -260,9 +260,9 @@ curl -X POST "http://localhost:8000/api/v1/predict" \
 
 | Name | ID | Role |
 |------|----|----- |
-| **Vinay Krishna H S** | PES2UG23CS691 | Lead Developer - Designs ML pipeline, implements LSTM model, develops API backend, manages system architecture |
-| **Sujay M** | PES2UG23CS620 | Data Engineer - Collects and preprocesses satellite & weather data, builds ETL pipeline |
-| **Karthik P** | PES2UG24CS811 | Frontend Developer - Creates dashboard, implements visualizations, designs UI/UX |
+| **Vinay Krishna H S** | PES2UG23CS691 | Designs ML pipeline, implements LSTM model, develops API backend, manages system architecture |
+| **Sujay M** | PES2UG23CS620 | Collects and preprocesses satellite & weather data, builds ETL pipeline |
+| **Karthik P** | PES2UG24CS811 | Creates dashboard, implements visualizations, designs UI/UX |
 | **Sudeep A Biradar** | PES2UG23CS609 | QA & Documentation - Conducts testing, literature survey, prepares reports and presentations |
 
 **Project Guide:** Prof. Pavitra  
