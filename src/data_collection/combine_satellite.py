@@ -19,8 +19,8 @@ satellite_all = pd.concat(df_list, ignore_index=True)
 
 # Create year_month column
 satellite_all["year_month"] = (
-    satellite_all["year"].astype(str) + "-" +
-    satellite_all["month"].astype(str).str.zfill(2)
+    satellite_all["year"].astype(int).astype(str) + "-" +
+    satellite_all["month"].astype(int).astype(str).str.zfill(2)
 )
 
 # Sort properly

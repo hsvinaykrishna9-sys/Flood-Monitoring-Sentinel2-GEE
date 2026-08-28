@@ -1,0 +1,9 @@
+{
+  "n_total_rows": 93,
+  "n_train": 74,
+  "n_test": 19,
+  "n_test_lstm": 17,
+  "positive_rate_test": 0.5789473684210527,
+  "rainfall_threshold_mm": 265.7650000000001,
+  "best_model_by_auc": "SVM"
+}

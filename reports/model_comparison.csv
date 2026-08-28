@@ -1,0 +1,7 @@
+Model,Accuracy,Precision,Recall,F1,AUC
+Baseline (Rainfall Threshold),0.842,1.0,0.727,0.842,0.955
+Random Forest,0.947,1.0,0.909,0.952,0.926
+XGBoost,0.842,0.9,0.818,0.857,0.943
+SVM,0.895,1.0,0.818,0.9,0.977
+Ensemble (RF+XGB+SVM),0.842,1.0,0.727,0.842,0.966
+LSTM,0.647,0.714,0.556,0.625,0.861
