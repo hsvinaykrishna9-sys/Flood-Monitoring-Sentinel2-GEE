@@ -1,0 +1,8 @@
+pandas
+numpy
+requests
+scikit-learn
+xgboost
+tensorflow-cpu
+matplotlib
+pytest
