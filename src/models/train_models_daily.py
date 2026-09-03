@@ -30,8 +30,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.metrics import (
-    accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, roc_curve,
+    accuracy_score, f1_score, mean_absolute_error, mean_squared_error,
+    precision_score, r2_score, recall_score, roc_auc_score, roc_curve,
 )
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
@@ -154,6 +156,32 @@ def run():
     results.append(evaluate("SVM", y_test, svm_pred, svm_score))
     roc_data["SVM"] = roc_curve(y_test, svm_score)[:2]
 
+    # --- Logistic Regression (classic linear classification baseline) ---
+    logreg = LogisticRegression(max_iter=1000, random_state=RANDOM_STATE)
+    logreg.fit(X_train_s, y_train)
+    logreg_score = logreg.predict_proba(X_test_s)[:, 1]
+    logreg_pred = logreg.predict(X_test_s)
+    results.append(evaluate("Logistic Regression", y_test, logreg_pred, logreg_score))
+    roc_data["Logistic Regression"] = roc_curve(y_test, logreg_score)[:2]
+
+    # --- Ridge Regression: genuine regression on continuous runoff_mm, ---
+    # --- then thresholded at the same cutoff used to define flood_risk ---
+    y_train_runoff = train["runoff_mm"].values
+    y_test_runoff = test["runoff_mm"].values
+    ridge = Ridge(alpha=1.0, random_state=RANDOM_STATE)
+    ridge.fit(X_train_s, y_train_runoff)
+    ridge_pred_runoff = ridge.predict(X_test_s)
+
+    reg_mae = mean_absolute_error(y_test_runoff, ridge_pred_runoff)
+    reg_rmse = np.sqrt(mean_squared_error(y_test_runoff, ridge_pred_runoff))
+    reg_r2 = r2_score(y_test_runoff, ridge_pred_runoff)
+    print(f"\nRidge Regression - continuous runoff_mm prediction (not a 0/1 classifier):")
+    print(f"  MAE: {reg_mae:.2f} mm   RMSE: {reg_rmse:.2f} mm   R2: {reg_r2:.3f}")
+
+    ridge_class_pred = (ridge_pred_runoff > thresh).astype(int)
+    results.append(evaluate("Ridge Regression (thresholded)", y_test, ridge_class_pred, ridge_pred_runoff))
+    roc_data["Ridge Regression (thresholded)"] = roc_curve(y_test, ridge_pred_runoff)[:2]
+
     # --- Ensemble ---
     ens_score = (rf_score + xgb_score + svm_score) / 3
     ens_pred = (ens_score > 0.5).astype(int)
@@ -185,6 +213,9 @@ def run():
             "runoff_threshold_mm": float(thresh),
             "best_model_by_auc": best_model,
             "date_range": [str(df["date"].min().date()), str(df["date"].max().date())],
+            "ridge_regression_continuous_runoff": {
+                "mae_mm": float(reg_mae), "rmse_mm": float(reg_rmse), "r2": float(reg_r2),
+            },
         }, f, indent=2)
 
     ax = comparison[["Accuracy", "Precision", "Recall", "F1", "AUC"]].plot(
