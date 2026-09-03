@@ -13,6 +13,7 @@ Usage:
     python src/models/predict_daily.py
 """
 
+import datetime
 import os
 import sys
 import warnings
@@ -125,14 +126,26 @@ def run():
     print("└" + "─" * (W - 2) + "┘")
     print()
 
-    outlook = []
-    for step in range(N_OUTLOOK_DAYS):
+    # Bridge the gap between the last real ERA5-Land data point and the
+    # actual current date (ERA5-Land always lags real-time by roughly a
+    # week or more) so the displayed outlook is anchored to TODAY, not to
+    # whatever date the satellite/reanalysis data happened to stop at.
+    real_today = pd.Timestamp(datetime.date.today())
+    bridge_days = max(0, (real_today - last_real["date"]).days)
+    # all_predictions[k] will hold the date (last_real_date + k+1 days), so the
+    # entry for "today" sits at index (bridge_days - 1); floor at 0 for the
+    # (practically impossible) case where the data is already fully current.
+    today_index = max(bridge_days - 1, 0)
+    total_steps = today_index + N_OUTLOOK_DAYS
+
+    all_predictions = []
+    for step in range(total_steps):
         row, next_date = build_next_day_row(history)
         X_next = pd.DataFrame([row])[FEATURE_COLUMNS].values
         X_next_scaled = scaler.transform(X_next)
         prob = svm.predict_proba(X_next_scaled)[0, 1]
         pred = int(prob > 0.5)
-        outlook.append((next_date, prob, pred))
+        all_predictions.append((next_date, prob, pred))
 
         # extend the "known history" with a projected day (persistence of recent
         # rolling averages) so the next iteration's lag features are defined
@@ -148,19 +161,32 @@ def run():
             "wind_speed_ms": history[-1]["wind_speed_ms"],
         })
 
-    tomorrow_date, tomorrow_prob, tomorrow_pred = outlook[0]
-    band, color = risk_band(tomorrow_prob)
-    print(f" {BOLD}TOMORROW{RESET}  ({tomorrow_date.date()}, {DAY_NAMES[tomorrow_date.weekday()]})"
-          f"   {color}{BOLD}{band} RISK{RESET}   ({tomorrow_prob:.0%} probability)")
-    print(f" {DIM}Based on real observed data through {last_real['date'].date()} - genuine day-ahead forecast{RESET}")
+    # only the last N_OUTLOOK_DAYS (today onward) are actually displayed;
+    # the bridge days were needed to advance the lag/rolling features but
+    # aren't shown individually
+    outlook = all_predictions[today_index:today_index + N_OUTLOOK_DAYS]
+    assert outlook[0][0].date() == real_today.date(), \
+        f"expected first outlook day to be today ({real_today.date()}), got {outlook[0][0].date()}"
+
+    if bridge_days > 0:
+        print(f" {DIM}Real satellite/weather data currently ends {last_real['date'].date()}"
+              f" ({bridge_days} day(s) behind today, due to ERA5-Land's normal")
+        print(f" processing lag). The {bridge_days} day(s) since then were auto-bridged"
+              f" using recent trends so this outlook lines up with today's date.{RESET}")
+        print()
+
+    today_prob, today_pred = outlook[0][1], outlook[0][2]
+    band, color = risk_band(today_prob)
+    print(f" {BOLD}TODAY{RESET}  ({real_today.date()}, {DAY_NAMES[real_today.weekday()]})"
+          f"   {color}{BOLD}{band} RISK{RESET}   ({today_prob:.0%} probability)")
     print()
-    print(f" {BOLD}{N_OUTLOOK_DAYS}-DAY FLOOD RISK OUTLOOK{RESET}")
-    print(f" {DIM}(days 2-{N_OUTLOOK_DAYS} project forward from recent rainfall trends - not measured,")
-    print(f" like any weather forecast, confidence drops the further out you go){RESET}")
+    print(f" {BOLD}{N_OUTLOOK_DAYS}-DAY FLOOD RISK OUTLOOK (today + next {N_OUTLOOK_DAYS - 1} days){RESET}")
+    print(f" {DIM}Projects forward from recent rainfall trends - not measured data,")
+    print(f" confidence drops the further out you go, same as any weather forecast.{RESET}")
     print("─" * W)
-    for i, (date, prob, pred) in enumerate(outlook, start=1):
+    for i, (date, prob, pred) in enumerate(outlook, start=0):
         band, color = risk_band(prob)
-        label = "Tomorrow" if i == 1 else f"Day +{i}"
+        label = "Today" if i == 0 else f"Day +{i}"
         day_str = f"{date.strftime('%b %d')} ({DAY_NAMES[date.weekday()]})"
         print(f" {label:<10}{day_str:<14}{color}{band:<9}{RESET}{prob:>5.0%}   {risk_bar(prob)}")
     print("─" * W)
