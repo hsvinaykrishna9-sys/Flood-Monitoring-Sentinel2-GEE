@@ -1,0 +1,7 @@
+Model,Accuracy,Precision,Recall,F1,AUC
+Baseline (Runoff Persistence),0.919,0.795,0.419,0.549,0.916
+Random Forest,0.922,0.745,0.514,0.608,0.933
+XGBoost,0.905,0.63,0.459,0.531,0.918
+SVM,0.919,0.735,0.486,0.585,0.874
+Ensemble (RF+XGB+SVM),0.919,0.756,0.459,0.571,0.928
+LSTM,0.922,0.727,0.541,0.62,0.927
