@@ -87,9 +87,11 @@ class WeatherCollector:
 
 
 if __name__ == "__main__":
+    import datetime
 
+    end_date = datetime.date.today().isoformat()
     collector = WeatherCollector()
-    daily_df, monthly_df = collector.run()
+    daily_df, monthly_df = collector.run(end_date=end_date)
 
     print("\n📊 Monthly Sample:")
     print(monthly_df.head())

@@ -1,0 +1,13 @@
+{
+  "n_total_rows": 3153,
+  "n_train": 2522,
+  "n_test": 631,
+  "n_test_lstm": 625,
+  "positive_rate_test": 0.11727416798732171,
+  "runoff_threshold_mm": 33.183941540619166,
+  "best_model_by_auc": "Random Forest",
+  "date_range": [
+    "2018-01-08",
+    "2026-08-26"
+  ]
+}
