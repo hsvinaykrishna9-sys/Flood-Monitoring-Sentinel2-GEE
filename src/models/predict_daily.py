@@ -28,7 +28,31 @@ from sklearn.svm import SVC
 
 from feature_engineering_daily import FEATURE_COLUMNS, run as build_features
 
-N_OUTLOOK_DAYS = 7
+N_OUTLOOK_DAYS = 10
+
+# ANSI colors (most terminals support this; harmless if not)
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+RED = "\033[31m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+RESET = "\033[0m"
+
+DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def risk_band(prob):
+    if prob < 0.33:
+        return "LOW", GREEN
+    elif prob < 0.66:
+        return "MODERATE", YELLOW
+    return "HIGH", RED
+
+
+def risk_bar(prob, width=24):
+    filled = round(prob * width)
+    _, color = risk_band(prob)
+    return f"{color}{'█' * filled}{DIM}{'░' * (width - filled)}{RESET}"
 
 
 def build_next_day_row(history, day_offset=1):
