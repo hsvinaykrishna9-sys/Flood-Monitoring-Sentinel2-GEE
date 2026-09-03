@@ -89,7 +89,56 @@ def build_next_day_row(history, day_offset=1):
     return row, next_date
 
 
+def run_historical_check(target_date_str):
+    """Show the model's prediction on a real historical date, alongside the
+    real (ground-truth) outcome for that day. Demonstrates that the model
+    genuinely varies its output with real conditions, using real data -
+    not a live forecast."""
+    df = build_features()
+    df["date"] = pd.to_datetime(df["date"])
+
+    X = df[FEATURE_COLUMNS].values
+    y = df["flood_risk"].values
+    scaler = StandardScaler().fit(X)
+    svm = SVC(kernel="rbf", probability=True, random_state=42)
+    svm.fit(scaler.transform(X), y)
+
+    target_date = pd.Timestamp(target_date_str)
+    match = df[df["date"] == target_date]
+    if match.empty:
+        print(f"No data for {target_date.date()}. Try a date between "
+              f"{df['date'].min().date()} and {df['date'].max().date()}.")
+        return
+
+    row = match.iloc[0]
+    X_row = scaler.transform(row[FEATURE_COLUMNS].values.reshape(1, -1))
+    prob = svm.predict_proba(X_row)[0, 1]
+    pred = int(prob > 0.5)
+    actual = int(row["flood_risk"])
+    band, color = risk_band(prob)
+
+    print("=" * 66)
+    print(f"HISTORICAL CHECK - {target_date.date()} ({DAY_NAMES[target_date.weekday()]})")
+    print("=" * 66)
+    print(f"Conditions going into this day: prior-day rainfall "
+          f"{row['rainfall_lag1']:.1f}mm, prior-day runoff {row['runoff_lag1']:.1f}mm")
+    print(f"Model prediction:  {color}{BOLD}{band} RISK{RESET}  ({prob:.1%} probability)")
+    print(f"Actual outcome:    {'FLOOD-RISK DAY' if actual else 'normal day'} "
+          f"(runoff exceeded the 85th-percentile threshold: {'yes' if actual else 'no'})")
+    print(f"Model {'correctly matched' if pred == actual else 'did NOT match'} the real outcome.")
+    print("-" * 66)
+    print(f"{DIM}Note: this date is inside the model's training data (it was trained")
+    print(f"on all 3,153 days), so this shows the model recalling a fitted pattern,")
+    print(f"not out-of-sample generalization. For genuine held-out accuracy, see")
+    print(f"reports/model_comparison_daily.csv (test-set AUC 0.874 for SVM).{RESET}")
+    print("=" * 66)
+
+
 def run():
+    if len(sys.argv) > 1:
+        run_historical_check(sys.argv[1])
+        return
+
     df = build_features()
 
     X = df[FEATURE_COLUMNS].values
