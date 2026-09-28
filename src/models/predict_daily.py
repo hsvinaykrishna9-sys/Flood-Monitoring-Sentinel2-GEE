@@ -128,6 +128,91 @@ def build_next_day_row(history, day_offset=1):
     return row, next_date
 
 
+def detect_watch_periods(dated_probs, min_days=2):
+    """Given a list of (date, prob) in chronological order, find runs of
+    MODERATE-or-worse days (prob >= 0.33) at least min_days long - the same
+    kind of "sustained multi-day risk" a weather app groups into a single
+    Watch/Warning banner instead of listing day by day."""
+    periods = []
+    run_start = None
+    for i, (date, prob) in enumerate(dated_probs):
+        if prob >= 0.33:
+            if run_start is None:
+                run_start = i
+        else:
+            if run_start is not None and i - run_start >= min_days:
+                periods.append((run_start, i - 1))
+            run_start = None
+    if run_start is not None and len(dated_probs) - run_start >= min_days:
+        periods.append((run_start, len(dated_probs) - 1))
+    return periods
+
+
+def print_watch_banner(dated_probs, periods, W):
+    for s, e in periods:
+        start_date, end_date = dated_probs[s][0], dated_probs[e][0]
+        peak = max(p for _, p in dated_probs[s:e + 1])
+        n_days = e - s + 1
+        _, color = risk_band(peak)
+        level = "WARNING" if peak >= 0.66 else "WATCH"
+        print(f"{color}{BOLD}⚠ FLOOD {level}{RESET}{color}: elevated risk for {n_days} consecutive "
+              f"days, {start_date.strftime('%b %d')}-{end_date.strftime('%b %d')} "
+              f"(peak {peak:.0%} probability){RESET}")
+    if periods:
+        print("─" * W)
+        print()
+
+
+def run_historical_range_check(start_str, end_str):
+    """Show day-by-day predictions across a real historical date range, plus
+    a sustained-risk Watch/Warning banner when the run is long enough - the
+    'we saw this coming days in advance' view, on real past data."""
+    df = build_features()
+    df["date"] = pd.to_datetime(df["date"])
+
+    X = df[FEATURE_COLUMNS].values
+    y = df["flood_risk"].values
+    xgb = XGBClassifier(n_estimators=300, max_depth=4, learning_rate=0.1,
+                         eval_metric="logloss", random_state=42)
+    xgb.fit(X, y)
+
+    start_date, end_date = pd.Timestamp(start_str), pd.Timestamp(end_str)
+    window = df[(df["date"] >= start_date) & (df["date"] <= end_date)].reset_index(drop=True)
+    if window.empty:
+        print(f"No data in range {start_date.date()} to {end_date.date()}. Try dates between "
+              f"{df['date'].min().date()} and {df['date'].max().date()}.")
+        return
+
+    X_window = window[FEATURE_COLUMNS].values
+    probs = xgb.predict_proba(X_window)[:, 1]
+    dated_probs = list(zip(window["date"], probs))
+    W = 70
+
+    print("=" * W)
+    print(f"HISTORICAL RANGE CHECK - {start_date.date()} to {end_date.date()}")
+    print("=" * W)
+
+    periods = detect_watch_periods(dated_probs)
+    print_watch_banner(dated_probs, periods, W)
+
+    n_correct = 0
+    for i, (date, prob) in enumerate(dated_probs):
+        band, color = risk_band(prob)
+        actual = int(window.loc[i, "flood_risk"])
+        pred = int(prob > 0.5)
+        n_correct += (pred == actual)
+        match_mark = "✓" if pred == actual else "✗"
+        print(f" {date.strftime('%Y-%m-%d')} ({DAY_NAMES[date.weekday()]})  "
+              f"{color}{band:<9}{RESET}{prob:>5.0%}   {risk_bar(prob)}  "
+              f"actual: {'FLOOD' if actual else 'normal':<6} {match_mark}")
+    print("-" * W)
+    print(f"{DIM}Matched real outcome on {n_correct}/{len(dated_probs)} days in this window.")
+    print(f"Note: these dates are inside training data (recalling a fitted pattern,")
+    print(f"not out-of-sample generalization - see reports/model_comparison_daily.csv")
+    print(f"for genuine held-out test-set accuracy, AUC 0.977 for XGBoost).{RESET}")
+    print("=" * W)
+
+
 def run_historical_check(target_date_str):
     """Show the model's prediction on a real historical date, alongside the
     real (ground-truth) outcome for that day. Demonstrates that the model
@@ -174,6 +259,9 @@ def run_historical_check(target_date_str):
 
 
 def run():
+    if len(sys.argv) > 2:
+        run_historical_range_check(sys.argv[1], sys.argv[2])
+        return
     if len(sys.argv) > 1:
         run_historical_check(sys.argv[1])
         return
@@ -302,6 +390,11 @@ def run():
         print(f" projecting forward from recent rainfall trends instead - not measured")
         print(f" data, confidence drops the further out you go, same as any weather forecast.{RESET}")
     print("─" * W)
+
+    outlook_dated_probs = [(date, prob) for date, prob, _ in outlook]
+    watch_periods = detect_watch_periods(outlook_dated_probs)
+    print_watch_banner(outlook_dated_probs, watch_periods, W)
+
     for i, (date, prob, pred) in enumerate(outlook, start=0):
         band, color = risk_band(prob)
         label = "Today" if i == 0 else f"Day +{i}"
