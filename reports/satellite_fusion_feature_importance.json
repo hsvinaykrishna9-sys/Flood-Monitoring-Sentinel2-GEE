@@ -1,0 +1,88 @@
+{
+  "feature_importances_ranked": [
+    [
+      "runoff_lag1",
+      0.6975220441818237
+    ],
+    [
+      "soil_moisture_lag1",
+      0.05993266403675079
+    ],
+    [
+      "rain_soil_interaction_lag1",
+      0.030739691108465195
+    ],
+    [
+      "ndvi_lag_month",
+      0.027923250570893288
+    ],
+    [
+      "ndwi_max_lag_month",
+      0.02687785215675831
+    ],
+    [
+      "rainfall_lag1",
+      0.020484348759055138
+    ],
+    [
+      "runoff_roll3",
+      0.015997838228940964
+    ],
+    [
+      "doy_cos",
+      0.015147345140576363
+    ],
+    [
+      "wind_speed_lag1",
+      0.015103553421795368
+    ],
+    [
+      "rainfall_roll7",
+      0.013436617329716682
+    ],
+    [
+      "doy_sin",
+      0.012848079204559326
+    ],
+    [
+      "rainfall_roll3",
+      0.012168603017926216
+    ],
+    [
+      "rainfall_lag2",
+      0.011715671978890896
+    ],
+    [
+      "humidity_lag1",
+      0.010427791625261307
+    ],
+    [
+      "ndwi_mean_lag_month",
+      0.010027996264398098
+    ],
+    [
+      "temperature_lag1",
+      0.009878767654299736
+    ],
+    [
+      "rainfall_lag3",
+      0.009767835028469563
+    ]
+  ],
+  "test_metrics": {
+    "Model": "XGBoost + satellite fusion (NDVI/NDWI, month-lagged)",
+    "Accuracy": 0.945,
+    "Precision": 0.856,
+    "Recall": 0.819,
+    "F1": 0.837,
+    "AUC": 0.976
+  },
+  "baseline_weather_only": {
+    "Accuracy": 0.945,
+    "Precision": 0.855,
+    "Recall": 0.821,
+    "F1": 0.838,
+    "AUC": 0.977
+  },
+  "conclusion": "Satellite NDVI/NDWI features rank 4th and 5th of 17 by importance but do not improve overall test metrics versus weather-only XGBoost - largely redundant with runoff once runoff is available as a feature."
+}

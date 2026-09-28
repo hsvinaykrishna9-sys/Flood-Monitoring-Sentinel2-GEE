@@ -6,3 +6,5 @@ xgboost
 tensorflow-cpu
 matplotlib
 pytest
+shap
+imbalanced-learn

@@ -1,0 +1,2 @@
+Model,Accuracy,Precision,Recall,F1,AUC
+"XGBoost + satellite fusion (NDVI/NDWI, month-lagged)",0.945,0.856,0.819,0.837,0.976

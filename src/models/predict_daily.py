@@ -1,6 +1,7 @@
 """
-Live day-ahead flood-risk prediction using the Random Forest model, on
-real daily ERA5-Land data for Kodagu district (through 2026-08-26).
+Live day-ahead flood-risk prediction using the XGBoost model, on
+real daily ERA5-Land data for Kodagu district (1950-2026, through the
+most recently processed day).
 
 Predicts flood risk for TOMORROW (the day after the most recent real
 data), using only already-known information (no leakage) - a genuine
@@ -14,6 +15,10 @@ recursively projecting forward from recent rolling averages - a labeled
 simplification, not measured data, flagged as such in the output either
 way. Soil moisture and runoff are always trend-projected for future
 days, since Open-Meteo does not forecast those.
+
+Every single-day prediction (today, or a historical check) also prints
+a SHAP-based explanation: the specific features that pushed that day's
+risk up or down, and by how much - not just a bare probability.
 
 Usage:
     python src/models/predict_daily.py
@@ -30,8 +35,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "preprocessing"
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler
+import shap
+from xgboost import XGBClassifier
 
 from feature_engineering_daily import FEATURE_COLUMNS, run as build_features
 
@@ -128,6 +133,114 @@ def build_next_day_row(history, day_offset=1):
     return row, next_date
 
 
+def detect_watch_periods(dated_probs, min_days=2):
+    """Given a list of (date, prob) in chronological order, find runs of
+    MODERATE-or-worse days (prob >= 0.33) at least min_days long - the same
+    kind of "sustained multi-day risk" a weather app groups into a single
+    Watch/Warning banner instead of listing day by day."""
+    periods = []
+    run_start = None
+    for i, (date, prob) in enumerate(dated_probs):
+        if prob >= 0.33:
+            if run_start is None:
+                run_start = i
+        else:
+            if run_start is not None and i - run_start >= min_days:
+                periods.append((run_start, i - 1))
+            run_start = None
+    if run_start is not None and len(dated_probs) - run_start >= min_days:
+        periods.append((run_start, len(dated_probs) - 1))
+    return periods
+
+
+def print_watch_banner(dated_probs, periods, W):
+    for s, e in periods:
+        start_date, end_date = dated_probs[s][0], dated_probs[e][0]
+        peak = max(p for _, p in dated_probs[s:e + 1])
+        n_days = e - s + 1
+        _, color = risk_band(peak)
+        level = "WARNING" if peak >= 0.66 else "WATCH"
+        print(f"{color}{BOLD}⚠ FLOOD {level}{RESET}{color}: elevated risk for {n_days} consecutive "
+              f"days, {start_date.strftime('%b %d')}-{end_date.strftime('%b %d')} "
+              f"(peak {peak:.0%} probability){RESET}")
+    if periods:
+        print("─" * W)
+        print()
+
+
+def explain_prediction(xgb, X_row, top_n=5):
+    """SHAP explanation for one prediction: which features pushed this
+    day's risk up or down, and by how much. Uses TreeExplainer, which is
+    exact (not approximated) for tree models like XGBoost."""
+    explainer = shap.TreeExplainer(xgb)
+    shap_values = explainer.shap_values(X_row)[0]
+    order = np.argsort(-np.abs(shap_values))[:top_n]
+    lines = []
+    for i in order:
+        name = FEATURE_COLUMNS[i]
+        val = shap_values[i]
+        direction = "pushes risk UP" if val > 0 else "pushes risk DOWN"
+        color = RED if val > 0 else GREEN
+        lines.append((name, val, direction, color))
+    return lines
+
+
+def print_explanation(lines):
+    print(f" {DIM}Why (top feature contributions, SHAP log-odds impact):{RESET}")
+    for name, val, direction, color in lines:
+        print(f"   {color}{val:+.3f}{RESET}  {name:<28s} {DIM}({direction}){RESET}")
+
+
+def run_historical_range_check(start_str, end_str):
+    """Show day-by-day predictions across a real historical date range, plus
+    a sustained-risk Watch/Warning banner when the run is long enough - the
+    'we saw this coming days in advance' view, on real past data."""
+    df = build_features()
+    df["date"] = pd.to_datetime(df["date"])
+
+    X = df[FEATURE_COLUMNS].values
+    y = df["flood_risk"].values
+    xgb = XGBClassifier(n_estimators=300, max_depth=4, learning_rate=0.1,
+                         eval_metric="logloss", random_state=42)
+    xgb.fit(X, y)
+
+    start_date, end_date = pd.Timestamp(start_str), pd.Timestamp(end_str)
+    window = df[(df["date"] >= start_date) & (df["date"] <= end_date)].reset_index(drop=True)
+    if window.empty:
+        print(f"No data in range {start_date.date()} to {end_date.date()}. Try dates between "
+              f"{df['date'].min().date()} and {df['date'].max().date()}.")
+        return
+
+    X_window = window[FEATURE_COLUMNS].values
+    probs = xgb.predict_proba(X_window)[:, 1]
+    dated_probs = list(zip(window["date"], probs))
+    W = 70
+
+    print("=" * W)
+    print(f"HISTORICAL RANGE CHECK - {start_date.date()} to {end_date.date()}")
+    print("=" * W)
+
+    periods = detect_watch_periods(dated_probs)
+    print_watch_banner(dated_probs, periods, W)
+
+    n_correct = 0
+    for i, (date, prob) in enumerate(dated_probs):
+        band, color = risk_band(prob)
+        actual = int(window.loc[i, "flood_risk"])
+        pred = int(prob > 0.5)
+        n_correct += (pred == actual)
+        match_mark = "✓" if pred == actual else "✗"
+        print(f" {date.strftime('%Y-%m-%d')} ({DAY_NAMES[date.weekday()]})  "
+              f"{color}{band:<9}{RESET}{prob:>5.0%}   {risk_bar(prob)}  "
+              f"actual: {'FLOOD' if actual else 'normal':<6} {match_mark}")
+    print("-" * W)
+    print(f"{DIM}Matched real outcome on {n_correct}/{len(dated_probs)} days in this window.")
+    print(f"Note: these dates are inside training data (recalling a fitted pattern,")
+    print(f"not out-of-sample generalization - see reports/model_comparison_daily.csv")
+    print(f"for genuine held-out test-set accuracy, AUC 0.977 for XGBoost).{RESET}")
+    print("=" * W)
+
+
 def run_historical_check(target_date_str):
     """Show the model's prediction on a real historical date, alongside the
     real (ground-truth) outcome for that day. Demonstrates that the model
@@ -138,9 +251,9 @@ def run_historical_check(target_date_str):
 
     X = df[FEATURE_COLUMNS].values
     y = df["flood_risk"].values
-    scaler = StandardScaler().fit(X)
-    rf = RandomForestClassifier(n_estimators=300, max_depth=6, random_state=42)
-    rf.fit(scaler.transform(X), y)
+    xgb = XGBClassifier(n_estimators=300, max_depth=4, learning_rate=0.1,
+                         eval_metric="logloss", random_state=42)
+    xgb.fit(X, y)
 
     target_date = pd.Timestamp(target_date_str)
     match = df[df["date"] == target_date]
@@ -150,8 +263,8 @@ def run_historical_check(target_date_str):
         return
 
     row = match.iloc[0]
-    X_row = scaler.transform(row[FEATURE_COLUMNS].values.reshape(1, -1))
-    prob = rf.predict_proba(X_row)[0, 1]
+    X_row = row[FEATURE_COLUMNS].values.reshape(1, -1)
+    prob = xgb.predict_proba(X_row)[0, 1]
     pred = int(prob > 0.5)
     actual = int(row["flood_risk"])
     band, color = risk_band(prob)
@@ -166,14 +279,19 @@ def run_historical_check(target_date_str):
           f"(runoff exceeded the 85th-percentile threshold: {'yes' if actual else 'no'})")
     print(f"Model {'correctly matched' if pred == actual else 'did NOT match'} the real outcome.")
     print("-" * 66)
+    print_explanation(explain_prediction(xgb, X_row))
+    print("-" * 66)
     print(f"{DIM}Note: this date is inside the model's training data (it was trained")
-    print(f"on all 3,153 days), so this shows the model recalling a fitted pattern,")
+    print(f"on all {len(df):,} days), so this shows the model recalling a fitted pattern,")
     print(f"not out-of-sample generalization. For genuine held-out accuracy, see")
-    print(f"reports/model_comparison_daily.csv (test-set AUC 0.933 for Random Forest).{RESET}")
+    print(f"reports/model_comparison_daily.csv (test-set AUC 0.977 for XGBoost).{RESET}")
     print("=" * 66)
 
 
 def run():
+    if len(sys.argv) > 2:
+        run_historical_range_check(sys.argv[1], sys.argv[2])
+        return
     if len(sys.argv) > 1:
         run_historical_check(sys.argv[1])
         return
@@ -183,11 +301,9 @@ def run():
     X = df[FEATURE_COLUMNS].values
     y = df["flood_risk"].values
 
-    scaler = StandardScaler().fit(X)
-    X_scaled = scaler.transform(X)
-
-    rf = RandomForestClassifier(n_estimators=300, max_depth=6, random_state=42)
-    rf.fit(X_scaled, y)
+    xgb = XGBClassifier(n_estimators=300, max_depth=4, learning_rate=0.1,
+                         eval_metric="logloss", random_state=42)
+    xgb.fit(X, y)
 
     # rolling "known history" buffer, starts as the real observed data
     raw_cols = ["date", "rainfall_mm", "runoff_mm", "soil_moisture_m3m3",
@@ -234,15 +350,16 @@ def run():
     live_forecast = fetch_live_forecast(past_days=bridge_days, forecast_days=N_OUTLOOK_DAYS + 2)
 
     all_predictions = []
+    all_X_rows = []
     input_live_flags = []  # was the lag-1 day feeding THIS prediction real/live data?
     for step in range(total_steps):
         row, next_date = build_next_day_row(history)
         input_live_flags.append(history_live[-1])
         X_next = pd.DataFrame([row])[FEATURE_COLUMNS].values
-        X_next_scaled = scaler.transform(X_next)
-        prob = rf.predict_proba(X_next_scaled)[0, 1]
+        prob = xgb.predict_proba(X_next)[0, 1]
         pred = int(prob > 0.5)
         all_predictions.append((next_date, prob, pred))
+        all_X_rows.append(X_next)
 
         # extend the "known history": use the real forecast for this day if
         # we have it, otherwise fall back to trend projection (persistence of
@@ -293,6 +410,8 @@ def run():
     print(f" {BOLD}TODAY{RESET}  ({real_today.date()}, {DAY_NAMES[real_today.weekday()]})"
           f"   {color}{BOLD}{band} RISK{RESET}   ({today_prob:.0%} probability)")
     print()
+    print_explanation(explain_prediction(xgb, all_X_rows[today_index]))
+    print()
     print(f" {BOLD}{N_OUTLOOK_DAYS}-DAY FLOOD RISK OUTLOOK (today + next {N_OUTLOOK_DAYS - 1} days){RESET}")
     if live_forecast:
         n_live = sum(outlook_live_flags)
@@ -305,6 +424,11 @@ def run():
         print(f" projecting forward from recent rainfall trends instead - not measured")
         print(f" data, confidence drops the further out you go, same as any weather forecast.{RESET}")
     print("─" * W)
+
+    outlook_dated_probs = [(date, prob) for date, prob, _ in outlook]
+    watch_periods = detect_watch_periods(outlook_dated_probs)
+    print_watch_banner(outlook_dated_probs, watch_periods, W)
+
     for i, (date, prob, pred) in enumerate(outlook, start=0):
         band, color = risk_band(prob)
         label = "Today" if i == 0 else f"Day +{i}"
@@ -313,8 +437,8 @@ def run():
         print(f" {label:<10}{day_str:<14}{color}{band:<9}{RESET}{prob:>5.0%}   {risk_bar(prob)}  {src_tag}")
     print("─" * W)
     print()
-    print(f" {DIM}Model: Random Forest (300 trees) | trained on 3,153 real daily records, 2018-2026{RESET}")
-    print(f" {DIM}Validated out-of-sample AUC: 0.933 (best of 8 models compared){RESET}")
+    print(f" {DIM}Model: XGBoost (300 trees) | trained on {len(df):,} real daily records, 1950-2026{RESET}")
+    print(f" {DIM}Validated out-of-sample AUC: 0.977, F1: 0.838 (best F1 of 8 models compared){RESET}")
     print(f" {DIM}Full comparison: reports/model_comparison_daily.csv{RESET}")
 
 
