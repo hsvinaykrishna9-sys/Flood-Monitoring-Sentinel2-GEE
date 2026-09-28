@@ -1,164 +1,168 @@
 # Flood-Monitoring-Sentinel2-GEE
 
-Real-time flood prediction and monitoring system using Sentinel-2 satellite imagery, Google Earth Engine, and LSTM neural networks. This project predicts flood risk 7-30 days in advance using multi-modal data fusion, automated machine learning pipelines, and interactive web dashboards to support proactive disaster management and regional planning.
+Day-ahead flood-risk prediction for Kodagu district, Karnataka, built on real ERA5-Land weather/hydrology data (1950-2026), Sentinel-2 satellite indices, and terrain data — all pulled via Google Earth Engine. Compares 8 machine learning models, explains every prediction with SHAP, and includes a spatial (per-taluk) risk model that uses real elevation and slope data, not just weather.
 
 ---
 
 ## 📋 Project Overview
 
-This project focuses on **flood prediction and risk assessment** using Sentinel-2 satellite imagery, meteorological data, and machine learning. Floods are one of the most frequent natural disasters in Karnataka, causing severe damage to agriculture, infrastructure, and livelihoods. The objective is to predict flood probability at district level by analyzing time-series patterns in satellite data, weather conditions, and terrain features using LSTM neural networks and automated cloud-based processing.
+Kodagu is one of the most flood-prone districts in Karnataka, particularly during the June-September monsoon. This project builds a **genuine day-ahead flood-risk classifier**: given only what's already known as of today (rainfall, runoff, soil moisture trends), it predicts whether tomorrow is likely to be a flood-risk day — with no lookahead into future data.
 
-**Key Innovation:** Unlike traditional reactive flood monitoring, this system provides **predictive forecasts** 7-30 days in advance, enabling proactive disaster response.
+**What makes this different from a typical rainfall-alert app:** it doesn't just forecast rain — it combines historical antecedent conditions (recent rainfall, runoff, soil saturation trends) with a trained classifier to estimate flood risk specifically, explains *why* each prediction was made (SHAP feature attribution), and — uniquely — breaks risk down **per sub-region (taluk)** using real terrain differences, instead of one number for the whole district.
 
 ---
 
 ## 🎯 Objectives
 
-* To develop an **AI-powered flood prediction system** using LSTM neural networks
-* To integrate **multi-modal data** (satellite imagery + weather + terrain)
-* To predict flood probability with **>85% accuracy** for 7-30 day windows
-* To build an **automated data pipeline** using Google Earth Engine
-* To create a **REST API** for real-time predictions
-* To develop an **interactive web dashboard** for visualization and alerts
-* To generate high-resolution flood risk maps for disaster management authorities
+* Build a **day-ahead flood-risk classifier** using real historical weather/hydrology data, with no data leakage (strict chronological train/test split, lagged features only)
+* Compare multiple ML approaches — tree ensembles, linear/regression baselines, kernel methods, and a sequence model — on identical data and evaluation, not just pick one algorithm
+* Explain every prediction (SHAP feature attribution), not just output a bare probability
+* Extend beyond a single-point model to **spatial, per-region risk** using real terrain (elevation, slope, TWI)
+* Explore fusing satellite-derived vegetation/water indices (NDVI/NDWI) with weather data
+* Provide a live terminal demo that pulls real forecast data and predicts the next 10 days, including multi-day Flood Watch/Warning alerts
 
 ---
 
 ## 📊 Dataset Used
 
-### Satellite Data
-* **Sentinel-2 Optical Satellite Data** (10m resolution)
-  * Source: European Space Agency (ESA) – Copernicus Programme
-  * Accessed via: Google Earth Engine
-  * Indices: NDWI (water), NDVI (vegetation)
+### Weather / Hydrology (primary dataset)
+* **ECMWF ERA5-Land daily aggregates** — temperature, dewpoint, humidity, wind speed, precipitation, runoff, soil moisture, surface pressure, evaporation
+* Source: Copernicus Climate Data Store, accessed via Google Earth Engine
+* **Whole-district**: 1950-01-02 to 2026-09-20 (28,021 real daily records)
+* **Per-taluk** (Madikeri, Virajpet, Somwarpet — approximate Voronoi split): 2018-01-01 to 2026-09-20 (9,555 records, 3 regions × 3,185 days)
 
-### Meteorological Data
-* **Weather Data** (daily)
-  * Source: Open-Meteo API
-  * Parameters: Rainfall (mm), Temperature (°C), Humidity (%)
+### Satellite Data
+* **Sentinel-2 optical imagery** (10m resolution), via Google Earth Engine
+* NDVI (vegetation) and NDWI (water) monthly indices, 2018-2025
 
 ### Terrain Data
-* **Digital Elevation Model (DEM)** (30m resolution)
-  * Source: SRTM (Shuttle Radar Topography Mission)
+* **SRTM Digital Elevation Model** (elevation, slope), plus a Topographic Wetness Index (TWI) derived from flow accumulation
+* Whole-district average, and — for the spatial model — per-taluk values (elevation ranges 849-990m, slope 9-13.6° across the 3 taluks)
 
 ### Study Region
-* **Districts:** Bangalore Urban, Mysore, Kodagu (expandable)
-* **Time Period:** 2019-2024 (5 years historical data)
-* **Prediction Window:** 7-30 days ahead
+* **District:** Kodagu, Karnataka
+* **Time period:** 1950-2026 (whole-district weather); 2018-2026 (per-taluk weather, satellite indices)
+* **Prediction window:** day-ahead (1 day), with a 10-day outlook using live forecast data where available
+
+**Label definition (important caveat):** No verified historical flood-event record exists for Kodagu, so `flood_risk` is a physical proxy — a day is flagged 1 when its runoff exceeds the 85th percentile of the training-period runoff distribution (per-taluk in the spatial model, since Madikeri is structurally wetter than Somwarpet). This is documented, not hidden, throughout the code and reports.
 
 ---
 
 ## 🔬 Methodology
 
 ### 1. Data Acquisition
-* Sentinel-2 images filtered by date, region, and cloud coverage
-* Weather data fetched from meteorological APIs
-* Historical flood records from Karnataka SDMA
+* Daily and per-taluk ERA5-Land weather pulled via Google Earth Engine (`src/data_collection/`, plus GEE scripts run directly in the Earth Engine code editor for the larger historical/spatial pulls)
+* Monthly Sentinel-2 NDVI/NDWI and SRTM terrain, also via GEE
 
-### 2. Preprocessing
-* Cloud filtering (<30% cloud coverage)
-* Image clipping using district boundaries
-* Monthly median composite generation
-* Feature normalization and scaling
+### 2. Exploratory Data Analysis (`src/preprocessing/eda_daily.py`)
+* Outlier analysis (IQR method)
+* Correlation heatmap across engineered features (flagged `rainfall_lag1` / `rain_soil_interaction_lag1` as 99.9% correlated — near-redundant)
+* Missing-value check
+* Class balance (flood-risk days are ~15% of the record — a real, structural imbalance, not a data artifact)
+* Distribution shape (mean/median/skew) for core weather variables
 
-### 3. Feature Engineering
-* **Satellite Indices:** NDWI, NDVI calculation
-* **Temporal Features:** Month, season, day of year
-* **Lag Features:** 1-2 month historical values
-* **Rolling Statistics:** 3-month moving averages
-* **Interaction Terms:** NDWI × Rainfall, etc.
+### 3. Feature Engineering (no same-day leakage)
+* Every feature used to predict day *t* comes only from day *t-1* and earlier: lagged rainfall/runoff/soil-moisture/temperature/humidity/wind, 3-day and 7-day rolling averages, a rainfall × soil-moisture interaction term, and day-of-year seasonality (sin/cos encoding)
+* Chronological (never random) train/test split, with an explicit assertion that train and test indices never overlap
 
-### 4. Model Training
-* **Architecture:** LSTM neural network (2 layers, 128+64 units)
-* **Input:** 12-month time-series sequences (16 features)
-* **Output:** Flood probability [0-1]
-* **Training:** 70/15/15 train/val/test split
-* **Optimization:** Adam optimizer, early stopping
+### 4. Model Training & Comparison (`src/models/train_models_daily.py`)
+Eight models trained and evaluated identically on the same 76-year dataset, chronological 80/20 split:
 
-### 5. Prediction & API
-* Real-time flood probability prediction
-* Risk classification (Low, Medium, High, Critical)
-* RESTful API endpoints for integration
-* Confidence scores and feature importance
+| Model | Accuracy | Precision | Recall | F1 | AUC |
+|---|---|---|---|---|---|
+| Baseline (Runoff Persistence) | 0.936 | 0.835 | 0.781 | 0.808 | 0.968 |
+| Random Forest | 0.943 | 0.863 | 0.790 | 0.825 | 0.976 |
+| **XGBoost (chosen)** | **0.945** | **0.855** | **0.821** | **0.838** | **0.977** |
+| SVM | 0.943 | 0.878 | 0.773 | 0.822 | 0.957 |
+| Logistic Regression | 0.941 | 0.859 | 0.785 | 0.820 | 0.975 |
+| Ridge Regression (thresholded) | 0.934 | 0.785 | 0.846 | 0.814 | 0.972 |
+| Ensemble (RF+XGB+SVM) | 0.944 | 0.876 | 0.785 | 0.828 | 0.977 |
+| LSTM | 0.942 | 0.846 | 0.813 | 0.829 | 0.978 |
 
-### 6. Visualization
-* Interactive web dashboard (React.js)
-* Flood risk maps with Leaflet/Mapbox
-* Time-series charts and trend analysis
-* Alert system for high-risk predictions
+**XGBoost** was chosen: best F1 and Recall among the classification models, near-best AUC, and gives interpretable feature importances.
 
-### 7. Export
-* Predictions stored in PostgreSQL database
-* GeoTIFF exports for GIS analysis
-* PDF reports with visualizations
+**Class imbalance (SMOTE), tested and not adopted:** SMOTE was tried on the training set only; it substantially raises Recall (up to ~93%) but consistently lowers Precision and F1 across every model tested, on both the original 8-year and the full 76-year dataset. The better fix turned out to be more real data, not synthetic oversampling — confirmed by comparing results before/after extending the dataset from 8 to 76 years (Recall rose from ~51% to ~82% on Random Forest from data volume alone).
+
+**Satellite fusion, tested and not adopted:** NDVI/NDWI (previous-month-lagged, to avoid leakage) were added as extra features (`src/preprocessing/feature_engineering_daily_fused.py`). They rank 4th and 5th of 17 features by importance — genuine signal — but don't improve overall test metrics, since they're largely redundant with runoff once runoff is already a feature.
+
+### 5. Spatial / Per-Taluk Model (the real differentiator)
+Terrain data (elevation, slope, TWI) was collected early in the project but was a single whole-district average — useless as a model feature since it can't vary. `src/preprocessing/feature_engineering_taluk.py` and `src/models/train_models_taluk.py` fix this: real per-taluk weather and terrain for Madikeri, Virajpet, and Somwarpet, each taluk's own flood-risk threshold, one XGBoost model trained across all three.
+
+| Taluk | Accuracy | Precision | Recall | F1 | AUC |
+|---|---|---|---|---|---|
+| Madikeri | 0.947 | 0.857 | 0.788 | 0.821 | 0.975 |
+| Virajpet | 0.954 | 0.818 | 0.808 | 0.813 | 0.976 |
+| Somwarpet | 0.939 | 0.759 | 0.750 | 0.755 | 0.972 |
+| **Overall** | **0.947** | **0.814** | **0.782** | **0.798** | **0.975** |
+
+`elevation_m` ranks **2nd of 17 features** by importance, right after `runoff_lag1` — real confirmation that terrain genuinely modulates flood risk once it varies spatially.
+
+### 6. Explainability
+Every single-day prediction is explained with **SHAP** (TreeExplainer, exact for XGBoost) — the top features that pushed that day's risk up or down, not just a bare probability.
+
+### 7. Live Prediction & Alerts (`src/models/predict_daily.py`, `predict_taluk.py`)
+* Genuine day-ahead forecast for "today," using only already-known data
+* 10-day outlook that pulls a real rainfall/temperature/humidity/wind forecast from the Open-Meteo API where available, clearly tagged `[live]` vs `[trend]` (trend-projected) per day
+* Multi-day **Flood Watch / Warning banners** — consecutive elevated-risk days are grouped into a single alert, the way a weather service issues a multi-day warning instead of a bare list of daily numbers
+* Historical single-date and date-range check modes, for validating predictions against real past outcomes
+* Per-taluk live/historical mode showing risk broken out by region
 
 ---
 
-## 🏗️ High Level Architecture Diagram
+## 🏗️ High-Level Architecture
+
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │                         DATA SOURCES                          │
-│    Sentinel-2  │  Weather API  │  DEM  │  Historical Floods   │
+│  ERA5-Land (GEE)  │  Sentinel-2 NDVI/NDWI (GEE)  │  SRTM DEM   │
+│                    │  Open-Meteo (live forecast)               │
 └────────────────────────────┬──────────────────────────────────┘
                              │
                              ▼
 ┌───────────────────────────────────────────────────────────────┐
-│                    DATA PROCESSING LAYER                      │
-│  Google Earth Engine  │  Feature Engineering  │  PostgreSQL   │
+│                 PREPROCESSING & EDA                            │
+│  Lag/rolling features (no leakage)  │  Outlier/correlation/    │
+│  Per-taluk terrain merge            │  class-balance analysis  │
 └────────────────────────────┬──────────────────────────────────┘
                              │
                              ▼
 ┌───────────────────────────────────────────────────────────────┐
-│                   MACHINE LEARNING LAYER                      │
-│     LSTM Model  │  Training Pipeline  │  Model Registry       │
+│                MODEL TRAINING & COMPARISON                    │
+│  8 models (whole-district)  │  Spatial per-taluk XGBoost       │
+│  SMOTE tested  │  Satellite fusion tested  │  SHAP explainer   │
 └────────────────────────────┬──────────────────────────────────┘
                              │
                              ▼
 ┌───────────────────────────────────────────────────────────────┐
-│                     APPLICATION LAYER                         │
-│    FastAPI Backend  │  Prediction Service  │  Authentication  │
-└────────────────────────────┬──────────────────────────────────┘
-                             │
-                             ▼
-┌───────────────────────────────────────────────────────────────┐
-│                    PRESENTATION LAYER                         │
-│   React Dashboard  │  Interactive Maps  │  Charts & Alerts    │
+│                  LIVE PREDICTION (CLI)                        │
+│  Day-ahead + 10-day outlook  │  Flood Watch/Warning banner     │
+│  Per-taluk regional risk     │  SHAP "why" explanation         │
 └───────────────────────────────────────────────────────────────┘
 ```
+
+*Planned, not yet built:* a REST API and web dashboard layer on top of the existing prediction pipeline (see Roadmap).
 
 ---
 
 ## 🛠️ Technology Stack
 
 ### Data Processing
-* **Google Earth Engine (GEE)** – satellite data processing
-* **Python 3.10+** – core programming language
-* **Pandas, NumPy** – data manipulation
-* **GeoPandas, Rasterio** – geospatial data handling
+* **Google Earth Engine (GEE)** — satellite/reanalysis data extraction
+* **Python 3.11**, **Pandas**, **NumPy**
+* **Requests** — Open-Meteo live forecast API
 
 ### Machine Learning
-* **TensorFlow 2.15+** – deep learning framework
-* **Keras** – neural network API
-* **Scikit-learn** – preprocessing and metrics
-* **LSTM Networks** – time-series prediction
+* **scikit-learn** — Random Forest, Logistic Regression, Ridge Regression, SVM, preprocessing, metrics
+* **XGBoost** — chosen model
+* **TensorFlow / Keras** — LSTM sequence model
+* **imbalanced-learn** — SMOTE (tested, not used in the final pipeline)
+* **SHAP** — per-prediction explainability
 
-### Backend
-* **FastAPI** – REST API framework
-* **PostgreSQL + PostGIS** – database with geospatial support
-* **SQLAlchemy** – ORM
-* **Pydantic** – data validation
+### Visualization / Reporting
+* **Matplotlib** — EDA plots, ROC curves, model comparison charts
 
-### Frontend
-* **React 18** – UI framework
-* **Leaflet / Mapbox** – interactive maps
-* **Chart.js** – data visualization
-* **Axios** – HTTP client
-
-### DevOps
-* **Docker** – containerization
-* **GitHub Actions** – CI/CD pipeline
-* **Railway / Render** – cloud hosting
-* **pytest** – automated testing
+### Testing
+* **pytest**
 
 ---
 
@@ -167,52 +171,48 @@ This project focuses on **flood prediction and risk assessment** using Sentinel-
 Flood-Monitoring-Sentinel2-GEE/
 │
 ├── src/
-│   ├── data_collection/       # GEE and weather data collectors
-│   ├── preprocessing/          # Feature engineering pipeline
-│   ├── models/                 # LSTM model and training scripts
-│   ├── api/                    # FastAPI backend
-│   └── frontend/               # React dashboard
+│   ├── data_collection/
+│   │   ├── weather_collector.py         # Open-Meteo historical weather
+│   │   ├── combine_satellite.py         # Sentinel-2 NDVI/NDWI monthly merge
+│   │   └── merge_datasets.py            # satellite + weather join
+│   │
+│   ├── preprocessing/
+│   │   ├── feature_engineering.py       # monthly pipeline (original)
+│   │   ├── feature_engineering_daily.py # daily pipeline, whole-district
+│   │   ├── feature_engineering_daily_fused.py  # + satellite fusion (tested)
+│   │   ├── feature_engineering_taluk.py # per-taluk spatial pipeline
+│   │   └── eda_daily.py                 # outlier/correlation/imbalance/distribution EDA
+│   │
+│   └── models/
+│       ├── train_models.py              # monthly 6-model comparison
+│       ├── train_models_daily.py        # daily 8-model comparison
+│       ├── train_models_taluk.py        # spatial per-taluk model
+│       ├── predict.py                   # monthly live prediction
+│       ├── predict_daily.py             # daily live prediction, SHAP, alerts
+│       └── predict_taluk.py             # per-taluk live/historical prediction
 │
 ├── data/
-│   ├── raw/                    # Raw satellite and weather data
-│   ├── processed/              # Preprocessed datasets
-│   └── geotiffs/               # Exported flood maps
+│   ├── raw/                             # real ERA5-Land, terrain, satellite CSVs
+│   └── processed/                       # engineered feature sets
 │
-├── notebooks/                  # Jupyter notebooks for EDA
-├── tests/                      # Unit and integration tests
-├── config/                     # Configuration files
-├── scripts/                    # Setup and deployment scripts
-├── docs/                       # Documentation and reports
-├── docker/                     # Docker configuration
+├── reports/                             # model comparison tables, ROC curves, EDA plots
 │
-├── requirements.txt            # Python dependencies
-├── README.md                   # This file
-├── LICENSE                     # MIT License
-└── .gitignore                  # Git ignore rules
+├── requirements.txt
+├── README.md
+└── LICENSE
 ```
 
 ---
 
-## 📈 Output
+## 📈 Results Summary
 
-### Model Performance
-* **Accuracy:** >85% (Target: 87%+)
-* **Precision:** >80%
-* **Recall:** >80%
-* **F1-Score:** >0.80
-* **Prediction Window:** 7-30 days ahead
-* **Processing Time:** <5 minutes per prediction
-
-### Deliverables
-* ✅ Trained LSTM model with >85% accuracy
-* ✅ Flood probability predictions (0-1 scale)
-* ✅ Risk level classification (Low/Medium/High/Critical)
-* ✅ Time-series flood risk charts
-* ✅ High-resolution GeoTIFF flood maps
-* ✅ RESTful API for integration
-* ✅ Interactive web dashboard
-* ✅ PDF reports with visualizations
-* ✅ Feature importance analysis
+* **28,014** real daily weather/hydrology records (1950-2026) after feature engineering, whole-district
+* **9,534** real per-taluk records (2018-2026) across 3 regions
+* **8 models compared** identically; **XGBoost chosen** (F1 0.838, AUC 0.977, best Recall/F1 of the classifiers tested)
+* **SMOTE tested and rejected** for the final pipeline — hurts F1/Precision on this dataset; more real data was the actual fix
+* **Satellite fusion tested** — NDVI/NDWI rank 4th/5th by importance but don't improve headline metrics; documented, not adopted
+* **Spatial per-taluk model**: AUC 0.975 overall, elevation ranks 2nd of 17 features — real, demonstrated proof that terrain matters once it can vary
+* **Every prediction is explainable** (SHAP) and **every multi-day risk period is alerted** (Watch/Warning banner), not just a bare number
 
 ---
 
@@ -220,39 +220,40 @@ Flood-Monitoring-Sentinel2-GEE/
 
 ### Prerequisites
 ```bash
-# Python 3.10+, Node.js 18+, PostgreSQL 14+
-# Google Earth Engine account
+# Python 3.11+
+# A Google Earth Engine account (only needed to re-run the data extraction scripts)
 ```
 
-### Quick Start
+### Setup
 ```bash
-# Clone repository
-git clone https://github.com/yourusername/Flood-Monitoring-Sentinel2-GEE.git
+git clone https://github.com/hsvinaykrishna9-sys/Flood-Monitoring-Sentinel2-GEE.git
 cd Flood-Monitoring-Sentinel2-GEE
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Set up environment
-cp config/.env.example .env
-# Edit .env with your configurations
-
-# Collect data
-python src/data_collection/gee_collector.py
-
-# Train model
-python src/models/trainer.py
-
-# Start API
-uvicorn src.api.main:app --reload
-
-# Make predictions
-curl -X POST "http://localhost:8000/api/v1/predict" \
-  -H "Content-Type: application/json" \
-  -d '{"district_id": 1, "target_date": "2024-07-15"}'
 ```
 
-**Full documentation:** See [docs/installation.md](docs/installation.md)
+### Run the EDA
+```bash
+python3 src/preprocessing/eda_daily.py
+```
+
+### Train and compare all 8 models
+```bash
+python3 src/models/train_models_daily.py
+```
+
+### Live day-ahead prediction (whole district)
+```bash
+python3 src/models/predict_daily.py                       # today + 10-day outlook
+python3 src/models/predict_daily.py 2023-07-05             # historical single-day check
+python3 src/models/predict_daily.py 2023-07-01 2023-07-12  # historical range + Watch/Warning banner
+```
+
+### Spatial per-taluk prediction
+```bash
+python3 src/models/predict_taluk.py                # today, all 3 taluks
+python3 src/models/predict_taluk.py 2022-08-14      # historical regional check
+python3 src/models/train_models_taluk.py            # retrain the spatial model
+```
 
 ---
 
@@ -260,46 +261,43 @@ curl -X POST "http://localhost:8000/api/v1/predict" \
 
 | Name | ID | Role |
 |------|----|----- |
-| **Vinay Krishna H S** | PES2UG23CS691 | Designs ML pipeline, implements LSTM model, develops API backend, manages system architecture |
-| **Sujay M** | PES2UG23CS620 | Collects and preprocesses satellite & weather data, builds ETL pipeline |
-| **Karthik P** | PES2UG24CS811 | Creates dashboard, implements visualizations, designs UI/UX |
-| **Sudeep A Biradar** | PES2UG23CS609 | QA & Documentation - Conducts testing, literature survey, prepares reports and presentations |
+| **Vinay Krishna H S** | PES2UG23CS691 | ML pipeline design, model training/comparison, live prediction system, system architecture |
+| **Sujay M** | PES2UG23CS620 | Data collection & preprocessing, ETL pipeline |
+| **Karthik P** | PES2UG24CS811 | Dashboard/visualization design (planned) |
+| **Sudeep A Biradar** | PES2UG23CS609 | QA & documentation, testing, reports and presentations |
 
-**Project Guide:** Prof. Pavitra  
-**Institution:** PES University, Department of CSE
+**Project Guide:** Prof. Lenish Pramiee
+**Institution:** PES University, Department of CSE (UE23CS441A)
 
 ---
 
 ## 📅 Development Roadmap
 
-### ✅ Phase 1: Foundation (Completed)
-- [x] System architecture design
-- [x] Database schema design
-- [x] Technology stack selection
+### ✅ Completed
+- [x] Real ERA5-Land data pipeline, whole-district (1950-2026) and per-taluk (2018-2026)
+- [x] Full EDA (outliers, correlation, class balance, distributions)
+- [x] 8-model comparison with a strict no-leakage chronological split
+- [x] Class-imbalance handling explored (SMOTE) — tested, documented, not adopted
+- [x] Satellite (NDVI/NDWI) fusion explored — tested, documented, not adopted
+- [x] Spatial per-taluk model using real terrain features
+- [x] SHAP explainability on every prediction
+- [x] Live CLI prediction with real forecast integration and multi-day alerting
 
-### 🚧 Phase 2: Core Implementation (In Progress)
-- [ ] Data collection module
-- [ ] Preprocessing pipeline
-- [ ] LSTM model training
-- [ ] API backend development
-
-### 📅 Phase 3: Integration (Planned)
-- [ ] Frontend dashboard
-- [ ] End-to-end testing
-- [ ] Deployment
+### 🚧 In Progress / Next
+- [ ] FastAPI backend exposing the trained models as an endpoint
+- [ ] Web dashboard for visualization and alerts
+- [ ] End-to-end testing of the full pipeline
 
 ### 🔮 Future Enhancements
-- [ ] Mobile application
-- [ ] Real-time satellite data streaming
-- [ ] Multi-hazard support (droughts, landslides)
-- [ ] SMS alert system
-- [ ] Integration with government systems
+- [ ] Verified historical flood-event ground truth (replacing the runoff-percentile proxy label)
+- [ ] Higher-resolution spatial risk (beyond 3 approximate taluk zones)
+- [ ] SMS/push alert system
+- [ ] Integration with Karnataka disaster management systems
 
 ---
 
 ## 📄 License
 
-This project is developed for **academic and research purposes** using open-source satellite data from the Copernicus Programme and Open-Meteo API.
+This project is developed for **academic and research purposes** using open-source data from the Copernicus Programme (ERA5-Land, Sentinel-2), NASA/USGS SRTM, and the Open-Meteo API.
 
 Licensed under the MIT License - see [LICENSE](LICENSE) file for details.
-
