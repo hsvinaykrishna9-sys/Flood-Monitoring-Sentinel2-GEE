@@ -2,8 +2,8 @@
 Daily-resolution feature engineering for real-time (day-ahead) flood risk.
 
 Data source: ECMWF ERA5-Land daily aggregates for the whole Kodagu district,
-pulled live via Google Earth Engine (data/raw/kodagu_daily_era5_2018_2026.csv),
-2018-01-01 through the most recent day ERA5-Land had processed at export time.
+pulled live via Google Earth Engine (data/raw/kodagu_daily_era5_1950_2026.csv),
+1950-01-02 through the most recent day ERA5-Land had processed at export time.
 
 Label definition
 -----------------
@@ -26,8 +26,8 @@ one-day-ahead forecast, not same-day detection.
 import numpy as np
 import pandas as pd
 
-IN_PATH = "data/raw/kodagu_daily_era5_2018_2026.csv"
-OUT_PATH = "data/processed/kodagu_daily_features_2018_2026.csv"
+IN_PATH = "data/raw/kodagu_daily_era5_1950_2026.csv"
+OUT_PATH = "data/processed/kodagu_daily_features_1950_2026.csv"
 
 FEATURE_COLUMNS = [
     "doy_sin",
