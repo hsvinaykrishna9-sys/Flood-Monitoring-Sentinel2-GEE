@@ -16,6 +16,10 @@ simplification, not measured data, flagged as such in the output either
 way. Soil moisture and runoff are always trend-projected for future
 days, since Open-Meteo does not forecast those.
 
+Every single-day prediction (today, or a historical check) also prints
+a SHAP-based explanation: the specific features that pushed that day's
+risk up or down, and by how much - not just a bare probability.
+
 Usage:
     python src/models/predict_daily.py
 """
@@ -31,6 +35,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "preprocessing"
 
 import numpy as np
 import pandas as pd
+import shap
 from xgboost import XGBClassifier
 
 from feature_engineering_daily import FEATURE_COLUMNS, run as build_features
@@ -163,6 +168,29 @@ def print_watch_banner(dated_probs, periods, W):
         print()
 
 
+def explain_prediction(xgb, X_row, top_n=5):
+    """SHAP explanation for one prediction: which features pushed this
+    day's risk up or down, and by how much. Uses TreeExplainer, which is
+    exact (not approximated) for tree models like XGBoost."""
+    explainer = shap.TreeExplainer(xgb)
+    shap_values = explainer.shap_values(X_row)[0]
+    order = np.argsort(-np.abs(shap_values))[:top_n]
+    lines = []
+    for i in order:
+        name = FEATURE_COLUMNS[i]
+        val = shap_values[i]
+        direction = "pushes risk UP" if val > 0 else "pushes risk DOWN"
+        color = RED if val > 0 else GREEN
+        lines.append((name, val, direction, color))
+    return lines
+
+
+def print_explanation(lines):
+    print(f" {DIM}Why (top feature contributions, SHAP log-odds impact):{RESET}")
+    for name, val, direction, color in lines:
+        print(f"   {color}{val:+.3f}{RESET}  {name:<28s} {DIM}({direction}){RESET}")
+
+
 def run_historical_range_check(start_str, end_str):
     """Show day-by-day predictions across a real historical date range, plus
     a sustained-risk Watch/Warning banner when the run is long enough - the
@@ -251,6 +279,8 @@ def run_historical_check(target_date_str):
           f"(runoff exceeded the 85th-percentile threshold: {'yes' if actual else 'no'})")
     print(f"Model {'correctly matched' if pred == actual else 'did NOT match'} the real outcome.")
     print("-" * 66)
+    print_explanation(explain_prediction(xgb, X_row))
+    print("-" * 66)
     print(f"{DIM}Note: this date is inside the model's training data (it was trained")
     print(f"on all {len(df):,} days), so this shows the model recalling a fitted pattern,")
     print(f"not out-of-sample generalization. For genuine held-out accuracy, see")
@@ -320,6 +350,7 @@ def run():
     live_forecast = fetch_live_forecast(past_days=bridge_days, forecast_days=N_OUTLOOK_DAYS + 2)
 
     all_predictions = []
+    all_X_rows = []
     input_live_flags = []  # was the lag-1 day feeding THIS prediction real/live data?
     for step in range(total_steps):
         row, next_date = build_next_day_row(history)
@@ -328,6 +359,7 @@ def run():
         prob = xgb.predict_proba(X_next)[0, 1]
         pred = int(prob > 0.5)
         all_predictions.append((next_date, prob, pred))
+        all_X_rows.append(X_next)
 
         # extend the "known history": use the real forecast for this day if
         # we have it, otherwise fall back to trend projection (persistence of
@@ -377,6 +409,8 @@ def run():
     band, color = risk_band(today_prob)
     print(f" {BOLD}TODAY{RESET}  ({real_today.date()}, {DAY_NAMES[real_today.weekday()]})"
           f"   {color}{BOLD}{band} RISK{RESET}   ({today_prob:.0%} probability)")
+    print()
+    print_explanation(explain_prediction(xgb, all_X_rows[today_index]))
     print()
     print(f" {BOLD}{N_OUTLOOK_DAYS}-DAY FLOOD RISK OUTLOOK (today + next {N_OUTLOOK_DAYS - 1} days){RESET}")
     if live_forecast:
