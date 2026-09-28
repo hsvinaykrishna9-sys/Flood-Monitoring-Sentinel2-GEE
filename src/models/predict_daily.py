@@ -1,6 +1,7 @@
 """
-Live day-ahead flood-risk prediction using the Random Forest model, on
-real daily ERA5-Land data for Kodagu district (through 2026-08-26).
+Live day-ahead flood-risk prediction using the XGBoost model, on
+real daily ERA5-Land data for Kodagu district (1950-2026, through the
+most recently processed day).
 
 Predicts flood risk for TOMORROW (the day after the most recent real
 data), using only already-known information (no leakage) - a genuine
@@ -30,8 +31,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "preprocessing"
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler
+from xgboost import XGBClassifier
 
 from feature_engineering_daily import FEATURE_COLUMNS, run as build_features
 
@@ -138,9 +138,9 @@ def run_historical_check(target_date_str):
 
     X = df[FEATURE_COLUMNS].values
     y = df["flood_risk"].values
-    scaler = StandardScaler().fit(X)
-    rf = RandomForestClassifier(n_estimators=300, max_depth=6, random_state=42)
-    rf.fit(scaler.transform(X), y)
+    xgb = XGBClassifier(n_estimators=300, max_depth=4, learning_rate=0.1,
+                         eval_metric="logloss", random_state=42)
+    xgb.fit(X, y)
 
     target_date = pd.Timestamp(target_date_str)
     match = df[df["date"] == target_date]
@@ -150,8 +150,8 @@ def run_historical_check(target_date_str):
         return
 
     row = match.iloc[0]
-    X_row = scaler.transform(row[FEATURE_COLUMNS].values.reshape(1, -1))
-    prob = rf.predict_proba(X_row)[0, 1]
+    X_row = row[FEATURE_COLUMNS].values.reshape(1, -1)
+    prob = xgb.predict_proba(X_row)[0, 1]
     pred = int(prob > 0.5)
     actual = int(row["flood_risk"])
     band, color = risk_band(prob)
@@ -167,9 +167,9 @@ def run_historical_check(target_date_str):
     print(f"Model {'correctly matched' if pred == actual else 'did NOT match'} the real outcome.")
     print("-" * 66)
     print(f"{DIM}Note: this date is inside the model's training data (it was trained")
-    print(f"on all 3,153 days), so this shows the model recalling a fitted pattern,")
+    print(f"on all {len(df):,} days), so this shows the model recalling a fitted pattern,")
     print(f"not out-of-sample generalization. For genuine held-out accuracy, see")
-    print(f"reports/model_comparison_daily.csv (test-set AUC 0.933 for Random Forest).{RESET}")
+    print(f"reports/model_comparison_daily.csv (test-set AUC 0.977 for XGBoost).{RESET}")
     print("=" * 66)
 
 
@@ -183,11 +183,9 @@ def run():
     X = df[FEATURE_COLUMNS].values
     y = df["flood_risk"].values
 
-    scaler = StandardScaler().fit(X)
-    X_scaled = scaler.transform(X)
-
-    rf = RandomForestClassifier(n_estimators=300, max_depth=6, random_state=42)
-    rf.fit(X_scaled, y)
+    xgb = XGBClassifier(n_estimators=300, max_depth=4, learning_rate=0.1,
+                         eval_metric="logloss", random_state=42)
+    xgb.fit(X, y)
 
     # rolling "known history" buffer, starts as the real observed data
     raw_cols = ["date", "rainfall_mm", "runoff_mm", "soil_moisture_m3m3",
@@ -239,8 +237,7 @@ def run():
         row, next_date = build_next_day_row(history)
         input_live_flags.append(history_live[-1])
         X_next = pd.DataFrame([row])[FEATURE_COLUMNS].values
-        X_next_scaled = scaler.transform(X_next)
-        prob = rf.predict_proba(X_next_scaled)[0, 1]
+        prob = xgb.predict_proba(X_next)[0, 1]
         pred = int(prob > 0.5)
         all_predictions.append((next_date, prob, pred))
 
@@ -313,8 +310,8 @@ def run():
         print(f" {label:<10}{day_str:<14}{color}{band:<9}{RESET}{prob:>5.0%}   {risk_bar(prob)}  {src_tag}")
     print("─" * W)
     print()
-    print(f" {DIM}Model: Random Forest (300 trees) | trained on 3,153 real daily records, 2018-2026{RESET}")
-    print(f" {DIM}Validated out-of-sample AUC: 0.933 (best of 8 models compared){RESET}")
+    print(f" {DIM}Model: XGBoost (300 trees) | trained on {len(df):,} real daily records, 1950-2026{RESET}")
+    print(f" {DIM}Validated out-of-sample AUC: 0.977, F1: 0.838 (best F1 of 8 models compared){RESET}")
     print(f" {DIM}Full comparison: reports/model_comparison_daily.csv{RESET}")
 
 
