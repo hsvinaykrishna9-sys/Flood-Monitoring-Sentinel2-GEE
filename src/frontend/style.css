@@ -215,16 +215,6 @@ body {
 
 #map { height: 300px; border-radius: 12px; overflow: hidden; }
 
-.radar-status {
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  margin-left: 8px;
-}
-.radar-status.live { color: var(--low); }
-.radar-status.none { color: var(--text-faint); }
-.radar-status.error { color: var(--text-faint); }
-
 .stat-big { font-size: 34px; font-weight: 300; margin-bottom: 4px; }
 .stat-sub { font-size: 13px; color: var(--text-dim); }
 

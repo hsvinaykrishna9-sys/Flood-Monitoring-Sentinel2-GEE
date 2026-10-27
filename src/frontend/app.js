@@ -74,16 +74,8 @@ function aqiColor(category) {
 
 // ---------- Map ----------
 
-function setRadarStatus(text, cls) {
-  const el = document.getElementById("radarStatus");
-  if (!el) return;
-  el.textContent = text;
-  el.className = "radar-status " + cls;
-}
-
 function initMap(lat, lon, label) {
   const mapEl = document.getElementById("map");
-  setRadarStatus("loading radar…", "");
   try {
     if (leafletMap) { leafletMap.remove(); leafletMap = null; }
     leafletMap = L.map(mapEl, { zoomControl: true }).setView([lat, lon], 7);
@@ -96,32 +88,20 @@ function initMap(lat, lon, label) {
     L.marker([lat, lon]).addTo(leafletMap).bindPopup(label);
 
     // Live precipitation radar overlay (RainViewer, free public API) -
-    // optional: if it fails to load, the base map above still works fine.
-    // The status badge makes it explicit whether the radar layer is
-    // actually active, rather than leaving "no colors visible" ambiguous
-    // between "it failed" and "there's just no rain nearby right now".
+    // optional: if it fails to load, the base map above still works fine
+    // without it, so a failure here is silent rather than shown in the UI.
     fetch("https://api.rainviewer.com/public/weather-maps.json")
       .then((r) => r.json())
       .then((data) => {
         const frames = (data.radar && data.radar.past) || [];
-        if (!frames.length) {
-          setRadarStatus("radar: no data", "none");
-          return;
-        }
+        if (!frames.length) return;
         const latest = frames[frames.length - 1];
         const tileUrl = `${data.host}${latest.path}/256/{z}/{x}/{y}/2/1_1.png`;
         L.tileLayer(tileUrl, { opacity: 0.6, maxZoom: 12 }).addTo(leafletMap);
-        const asOf = new Date(latest.time * 1000);
-        setRadarStatus(
-          `radar live, as of ${asOf.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} ` +
-            `(clear = no rain nearby, not broken)`,
-          "live"
-        );
       })
-      .catch(() => setRadarStatus("radar unavailable", "error"));
+      .catch(() => {});
   } catch (err) {
     mapEl.innerHTML = '<div style="padding:16px;color:rgba(255,255,255,0.6);font-size:13px;">Map unavailable right now.</div>';
-    setRadarStatus("map error", "error");
   }
 }
 
