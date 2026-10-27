@@ -137,10 +137,18 @@ Every single-day prediction is explained with **SHAP** (TreeExplainer, exact for
 │                  LIVE PREDICTION (CLI)                        │
 │  Day-ahead + 10-day outlook  │  Flood Watch/Warning banner     │
 │  Per-taluk regional risk     │  SHAP "why" explanation         │
+│  Weather-app-style location search (any location worldwide)   │
+└────────────────────────────┬──────────────────────────────────┘
+                             │
+                             ▼
+┌───────────────────────────────────────────────────────────────┐
+│                      REST API (FastAPI)                       │
+│  /predict/today  │  /predict/historical/{date}                │
+│  /predict/taluk/*  │  /weather/{location}  │  /models/*        │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-*Planned, not yet built:* a REST API and web dashboard layer on top of the existing prediction pipeline (see Roadmap).
+*Planned, not yet built:* a visual web dashboard on top of this API (see Roadmap).
 
 ---
 
@@ -158,11 +166,15 @@ Every single-day prediction is explained with **SHAP** (TreeExplainer, exact for
 * **imbalanced-learn** — SMOTE (tested, not used in the final pipeline)
 * **SHAP** — per-prediction explainability
 
+### Backend
+* **FastAPI** — REST API exposing every trained model
+* **Uvicorn** — ASGI server
+
 ### Visualization / Reporting
 * **Matplotlib** — EDA plots, ROC curves, model comparison charts
 
 ### Testing
-* **pytest**
+* **pytest**, **httpx** (FastAPI TestClient) — 29 automated tests
 
 ---
 
@@ -183,19 +195,25 @@ Flood-Monitoring-Sentinel2-GEE/
 │   │   ├── feature_engineering_taluk.py # per-taluk spatial pipeline
 │   │   └── eda_daily.py                 # outlier/correlation/imbalance/distribution EDA
 │   │
-│   └── models/
-│       ├── train_models.py              # monthly 6-model comparison
-│       ├── train_models_daily.py        # daily 8-model comparison
-│       ├── train_models_taluk.py        # spatial per-taluk model
-│       ├── predict.py                   # monthly live prediction
-│       ├── predict_daily.py             # daily live prediction, SHAP, alerts
-│       └── predict_taluk.py             # per-taluk live/historical prediction
+│   ├── models/
+│   │   ├── train_models.py              # monthly 6-model comparison
+│   │   ├── train_models_daily.py        # daily 8-model comparison
+│   │   ├── train_models_taluk.py        # spatial per-taluk model
+│   │   ├── predict.py                   # monthly live prediction
+│   │   ├── predict_daily.py             # daily live prediction, SHAP, alerts
+│   │   ├── predict_taluk.py             # per-taluk live/historical prediction
+│   │   └── weather_app.py               # current/searched-location weather + Kodagu flood risk
+│   │
+│   └── api/
+│       └── main.py                      # FastAPI backend wrapping all trained models
 │
 ├── data/
 │   ├── raw/                             # real ERA5-Land, terrain, satellite CSVs
 │   └── processed/                       # engineered feature sets
 │
 ├── reports/                             # model comparison tables, ROC curves, EDA plots
+│
+├── tests/                               # pytest suite - data, model, API regression tests
 │
 ├── requirements.txt
 ├── README.md
@@ -213,6 +231,8 @@ Flood-Monitoring-Sentinel2-GEE/
 * **Satellite fusion tested** — NDVI/NDWI rank 4th/5th by importance but don't improve headline metrics; documented, not adopted
 * **Spatial per-taluk model**: AUC 0.975 overall, elevation ranks 2nd of 17 features — real, demonstrated proof that terrain matters once it can vary
 * **Every prediction is explainable** (SHAP) and **every multi-day risk period is alerted** (Watch/Warning banner), not just a bare number
+* **29 automated tests** (pytest) covering data integrity, no-leakage splits, label validity, geographic boundary logic, and every API endpoint
+* **A REST API** (FastAPI) exposing every trained model as a live endpoint, plus a weather-app-style CLI that works for any location worldwide and adds flood-risk prediction specifically inside Kodagu district
 
 ---
 
@@ -255,6 +275,25 @@ python3 src/models/predict_taluk.py 2022-08-14      # historical regional check
 python3 src/models/train_models_taluk.py            # retrain the spatial model
 ```
 
+### Weather-app-style location search
+```bash
+python3 src/models/weather_app.py              # auto-detects current location
+python3 src/models/weather_app.py "Kodagu"      # any location - flood risk shown only if inside Kodagu
+python3 src/models/weather_app.py "Bengaluru"
+```
+
+### REST API
+```bash
+uvicorn src.api.main:app --reload --port 8000
+# then open http://localhost:8000/docs for interactive API docs
+```
+Endpoints: `/health`, `/predict/today`, `/predict/historical/{date}`, `/predict/taluk/today`, `/predict/taluk/historical/{date}`, `/weather/{location}`, `/models/comparison`.
+
+### Run the test suite
+```bash
+pytest tests/ -v
+```
+
 ---
 
 ## 👥 Team Roles
@@ -282,11 +321,13 @@ python3 src/models/train_models_taluk.py            # retrain the spatial model
 - [x] Spatial per-taluk model using real terrain features
 - [x] SHAP explainability on every prediction
 - [x] Live CLI prediction with real forecast integration and multi-day alerting
+- [x] FastAPI backend exposing every trained model as a live endpoint
+- [x] Weather-app-style location search/auto-detect (any location worldwide; flood risk inside Kodagu)
+- [x] Automated test suite (29 tests) covering data integrity, no-leakage splits, and every API endpoint
 
 ### 🚧 In Progress / Next
-- [ ] FastAPI backend exposing the trained models as an endpoint
-- [ ] Web dashboard for visualization and alerts
-- [ ] End-to-end testing of the full pipeline
+- [ ] Web dashboard (visual UI) on top of the existing API
+- [ ] End-to-end deployment (hosting the API somewhere reachable outside localhost)
 
 ### 🔮 Future Enhancements
 - [ ] Verified historical flood-event ground truth (replacing the runoff-percentile proxy label)
