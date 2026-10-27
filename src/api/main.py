@@ -26,7 +26,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "models"))
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from xgboost import XGBClassifier
 
 from feature_engineering_daily import FEATURE_COLUMNS as DAILY_FEATURES, run as build_daily_features
@@ -72,6 +74,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Permissive CORS: this is a student project API with no auth/private data,
+# and the dashboard may be opened from a different origin than the API
+# (e.g. a local file, or a separately-hosted static page) during testing.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
+
 
 def risk_band(prob):
     if prob < 0.33:
@@ -94,16 +106,19 @@ def shap_explanation(xgb, X_row, feature_names, top_n=5):
     ]
 
 
-@app.get("/")
+@app.get("/api")
 def root():
+    # NOT mounted at "/" - the dashboard (src/frontend/index.html) owns the
+    # root path via the StaticFiles mount at the bottom of this file.
     return {
         "name": "Kodagu Flood Risk API",
         "docs": "/docs",
         "endpoints": [
             "/health", "/predict/today", "/predict/historical/{date}",
             "/predict/taluk/today", "/predict/taluk/historical/{date}",
-            "/weather/{location}", "/models/comparison",
+            "/weather/{location}", "/weather-by-coords?lat=&lon=", "/models/comparison",
         ],
+        "dashboard": "/",
     }
 
 
@@ -212,18 +227,12 @@ def predict_taluk_historical(date: str):
     return {"date": str(target_date.date()), "taluks": results}
 
 
-@app.get("/weather/{location}")
-def weather(location: str):
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "models"))
-    from weather_app import geocode, fetch_weather, is_in_kodagu, wmo_text
+def _build_weather_response(loc, data):
+    from weather_app import is_in_kodagu, wmo_text
 
-    loc = geocode(location)
-    if loc is None:
-        raise HTTPException(404, f"Couldn't find '{location}'.")
-
-    data = fetch_weather(loc["lat"], loc["lon"])
-    if data is None:
-        raise HTTPException(502, "Found the location but couldn't reach the weather service.")
+    times = data["hourly"]["time"]
+    current_time = data["current"].get("time", "")
+    now_idx = next((i for i, t in enumerate(times) if t >= current_time), 0)
 
     response = {
         "location": {"name": loc["name"], "admin1": loc["admin1"], "country": loc["country"],
@@ -234,6 +243,12 @@ def weather(location: str):
             "humidity_pct": data["current"]["relative_humidity_2m"],
             "wind_speed_kmh": data["current"]["wind_speed_10m"],
         },
+        "hourly_outlook": [
+            {"time": times[i], "temp_C": data["hourly"]["temperature_2m"][i],
+             "rain_chance_pct": data["hourly"]["precipitation_probability"][i],
+             "condition": wmo_text(data["hourly"]["weather_code"][i])}
+            for i in range(now_idx, min(now_idx + 8, len(times)))
+        ],
         "daily_outlook": [
             {"date": data["daily"]["time"][i],
              "temp_min_C": data["daily"]["temperature_2m_min"][i],
@@ -246,10 +261,45 @@ def weather(location: str):
     }
 
     if response["flood_risk_available"]:
-        today = predict_today()
-        response["flood_risk"] = today
+        response["flood_risk"] = predict_today()
 
     return response
+
+
+@app.get("/weather/{location}")
+def weather(location: str):
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "models"))
+    from weather_app import geocode, fetch_weather
+
+    loc = geocode(location)
+    if loc is None:
+        raise HTTPException(404, f"Couldn't find '{location}'.")
+
+    data = fetch_weather(loc["lat"], loc["lon"])
+    if data is None:
+        raise HTTPException(502, "Found the location but couldn't reach the weather service.")
+
+    return _build_weather_response(loc, data)
+
+
+@app.get("/weather-by-coords")
+def weather_by_coords(lat: float, lon: float):
+    """For the dashboard's browser-GPS 'current location' mode - real
+    coordinates from navigator.geolocation, more accurate than IP-based
+    guessing. No name lookup (reverse geocoding), so the location is
+    just labeled 'Current Location'."""
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "models"))
+    from weather_app import fetch_weather
+
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise HTTPException(400, "lat must be in [-90, 90] and lon in [-180, 180].")
+
+    data = fetch_weather(lat, lon)
+    if data is None:
+        raise HTTPException(502, "Couldn't reach the weather service.")
+
+    loc = {"name": "Current Location", "admin1": "", "country": "", "lat": lat, "lon": lon}
+    return _build_weather_response(loc, data)
 
 
 @app.get("/models/comparison")
@@ -259,3 +309,11 @@ def models_comparison():
         raise HTTPException(404, f"{path} not found.")
     df = pd.read_csv(path)
     return JSONResponse(df.to_dict(orient="records"))
+
+
+# Serve the dashboard (src/frontend/) as static files, mounted LAST so it
+# never shadows the API routes declared above - only paths that don't match
+# an API route fall through to the static files here. html=True serves
+# index.html automatically at "/".
+_FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
+app.mount("/", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")

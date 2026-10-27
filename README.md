@@ -167,14 +167,18 @@ Every single-day prediction is explained with **SHAP** (TreeExplainer, exact for
 * **SHAP** — per-prediction explainability
 
 ### Backend
-* **FastAPI** — REST API exposing every trained model
+* **FastAPI** — REST API exposing every trained model, also serves the dashboard
 * **Uvicorn** — ASGI server
+
+### Frontend
+* **Vanilla HTML/CSS/JS** — no framework, no build step, no external libraries or CDN dependencies (nothing outside the deployment itself can fail to load)
+* **Browser Geolocation API** — real current-location detection (not IP-based guessing)
 
 ### Visualization / Reporting
 * **Matplotlib** — EDA plots, ROC curves, model comparison charts
 
 ### Testing
-* **pytest**, **httpx** (FastAPI TestClient) — 29 automated tests
+* **pytest**, **httpx** (FastAPI TestClient) — 34 automated tests
 
 ---
 
@@ -204,8 +208,13 @@ Flood-Monitoring-Sentinel2-GEE/
 │   │   ├── predict_taluk.py             # per-taluk live/historical prediction
 │   │   └── weather_app.py               # current/searched-location weather + Kodagu flood risk
 │   │
-│   └── api/
-│       └── main.py                      # FastAPI backend wrapping all trained models
+│   ├── api/
+│   │   └── main.py                      # FastAPI backend wrapping all trained models + serves the dashboard
+│   │
+│   └── frontend/                        # dashboard (vanilla HTML/CSS/JS, no build step, no external libs)
+│       ├── index.html
+│       ├── style.css
+│       └── app.js
 │
 ├── data/
 │   ├── raw/                             # real ERA5-Land, terrain, satellite CSVs
@@ -215,7 +224,10 @@ Flood-Monitoring-Sentinel2-GEE/
 │
 ├── tests/                               # pytest suite - data, model, API regression tests
 │
-├── requirements.txt
+├── requirements.txt                     # full dev install (includes TensorFlow, matplotlib)
+├── requirements-api.txt                 # slim install for deploying just the API + dashboard
+├── render.yaml                          # one-click Render Blueprint deploy config
+├── DEPLOY.md                            # step-by-step deployment instructions
 ├── README.md
 └── LICENSE
 ```
@@ -231,7 +243,8 @@ Flood-Monitoring-Sentinel2-GEE/
 * **Satellite fusion tested** — NDVI/NDWI rank 4th/5th by importance but don't improve headline metrics; documented, not adopted
 * **Spatial per-taluk model**: AUC 0.975 overall, elevation ranks 2nd of 17 features — real, demonstrated proof that terrain matters once it can vary
 * **Every prediction is explainable** (SHAP) and **every multi-day risk period is alerted** (Watch/Warning banner), not just a bare number
-* **29 automated tests** (pytest) covering data integrity, no-leakage splits, label validity, geographic boundary logic, and every API endpoint
+* **34 automated tests** (pytest) covering data integrity, no-leakage splits, label validity, geographic boundary logic, and every API/dashboard endpoint
+* **A live dashboard** styled after a phone weather app — real browser-GPS current location or search, live weather for anywhere worldwide, and the flood-risk card specifically inside Kodagu — served by the same API, one deployable service
 * **A REST API** (FastAPI) exposing every trained model as a live endpoint, plus a weather-app-style CLI that works for any location worldwide and adds flood-risk prediction specifically inside Kodagu district
 
 ---
@@ -282,12 +295,18 @@ python3 src/models/weather_app.py "Kodagu"      # any location - flood risk show
 python3 src/models/weather_app.py "Bengaluru"
 ```
 
-### REST API
+### REST API + Dashboard
 ```bash
+pip install -r requirements-api.txt
 uvicorn src.api.main:app --reload --port 8000
-# then open http://localhost:8000/docs for interactive API docs
+# then open http://localhost:8000 for the dashboard,
+# or http://localhost:8000/docs for interactive API docs
 ```
-Endpoints: `/health`, `/predict/today`, `/predict/historical/{date}`, `/predict/taluk/today`, `/predict/taluk/historical/{date}`, `/weather/{location}`, `/models/comparison`.
+API endpoints: `/health`, `/predict/today`, `/predict/historical/{date}`, `/predict/taluk/today`, `/predict/taluk/historical/{date}`, `/weather/{location}`, `/weather-by-coords?lat=&lon=`, `/models/comparison`.
+
+The dashboard (`src/frontend/`) is a single page, no build step, no external JS/CSS libraries — it asks for your browser's location (like a phone weather app's "Home" screen) or lets you search any city, and shows the flood-risk card only when that location is inside Kodagu district.
+
+**To deploy this publicly** (not just localhost), see [DEPLOY.md](DEPLOY.md) — one free Render.com service hosts both the API and the dashboard together.
 
 ### Run the test suite
 ```bash
@@ -323,11 +342,12 @@ pytest tests/ -v
 - [x] Live CLI prediction with real forecast integration and multi-day alerting
 - [x] FastAPI backend exposing every trained model as a live endpoint
 - [x] Weather-app-style location search/auto-detect (any location worldwide; flood risk inside Kodagu)
-- [x] Automated test suite (29 tests) covering data integrity, no-leakage splits, and every API endpoint
+- [x] Web dashboard (visual UI) on top of the API — real browser GPS, search, live weather, flood-risk card
+- [x] Automated test suite (34 tests) covering data integrity, no-leakage splits, and every API/dashboard endpoint
+- [x] Deployment config prepared and verified (slim dependency set tested in an isolated environment, `render.yaml` ready)
 
 ### 🚧 In Progress / Next
-- [ ] Web dashboard (visual UI) on top of the existing API
-- [ ] End-to-end deployment (hosting the API somewhere reachable outside localhost)
+- [ ] Actually deploying to a public URL — this needs a hosting account (Render.com, free), which is the one step that has to be done by hand rather than automated; see [DEPLOY.md](DEPLOY.md)
 
 ### 🔮 Future Enhancements
 - [ ] Verified historical flood-event ground truth (replacing the runoff-percentile proxy label)

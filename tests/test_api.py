@@ -79,3 +79,37 @@ def test_models_comparison(client):
     rows = r.json()
     assert len(rows) == 8
     assert any(row["Model"] == "XGBoost" for row in rows)
+
+
+def test_api_info_moved_off_root(client):
+    # "/" is owned by the dashboard (StaticFiles mount), not the JSON info
+    # endpoint - that lives at "/api" instead
+    r = client.get("/api")
+    assert r.status_code == 200
+    assert r.json()["name"] == "Kodagu Flood Risk API"
+
+
+def test_dashboard_served_at_root(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "Kodagu" in r.text
+
+
+def test_dashboard_assets_served(client):
+    for path in ("/style.css", "/app.js"):
+        r = client.get(path)
+        assert r.status_code == 200, f"{path} should be served as a static asset"
+
+
+def test_weather_by_coords_rejects_invalid_coordinates(client):
+    r = client.get("/weather-by-coords?lat=999&lon=0")
+    assert r.status_code == 400
+
+
+def test_weather_by_coords_fails_gracefully_without_network(client):
+    # this sandbox has no route to Open-Meteo, so this must return a clean
+    # 502, never crash the server - on a real deployment with network this
+    # would return 200 with real weather data instead
+    r = client.get("/weather-by-coords?lat=12.4244&lon=75.7382")
+    assert r.status_code in (200, 502)
