@@ -11,8 +11,17 @@ const suggestionsEl = document.getElementById("suggestions");
 const locateBtn = document.getElementById("locateBtn");
 
 let leafletMap = null;
+let floodMap = null;
 let activeSuggestionIndex = -1;
 let currentSuggestions = [];
+
+// Monotonic request guard: every load gets a ticket; only the response
+// matching the CURRENT (latest) ticket is ever allowed to touch the DOM.
+// Without this, an older slow request can resolve after a newer fast one
+// and silently overwrite it - the "stuck on Loading..." / stale-content
+// bug. This makes that entire class of bug impossible regardless of
+// network timing.
+let currentRequestId = 0;
 
 function iconFor(condition) {
   const c = condition.toLowerCase();
@@ -65,8 +74,16 @@ function aqiColor(category) {
 
 // ---------- Map ----------
 
+function setRadarStatus(text, cls) {
+  const el = document.getElementById("radarStatus");
+  if (!el) return;
+  el.textContent = text;
+  el.className = "radar-status " + cls;
+}
+
 function initMap(lat, lon, label) {
   const mapEl = document.getElementById("map");
+  setRadarStatus("loading radar…", "");
   try {
     if (leafletMap) { leafletMap.remove(); leafletMap = null; }
     leafletMap = L.map(mapEl, { zoomControl: true }).setView([lat, lon], 7);
@@ -80,18 +97,82 @@ function initMap(lat, lon, label) {
 
     // Live precipitation radar overlay (RainViewer, free public API) -
     // optional: if it fails to load, the base map above still works fine.
+    // The status badge makes it explicit whether the radar layer is
+    // actually active, rather than leaving "no colors visible" ambiguous
+    // between "it failed" and "there's just no rain nearby right now".
     fetch("https://api.rainviewer.com/public/weather-maps.json")
       .then((r) => r.json())
       .then((data) => {
         const frames = (data.radar && data.radar.past) || [];
-        if (!frames.length) return;
+        if (!frames.length) {
+          setRadarStatus("radar: no data", "none");
+          return;
+        }
         const latest = frames[frames.length - 1];
         const tileUrl = `${data.host}${latest.path}/256/{z}/{x}/{y}/2/1_1.png`;
-        L.tileLayer(tileUrl, { opacity: 0.55, maxZoom: 12 }).addTo(leafletMap);
+        L.tileLayer(tileUrl, { opacity: 0.6, maxZoom: 12 }).addTo(leafletMap);
+        const asOf = new Date(latest.time * 1000);
+        setRadarStatus(
+          `radar live, as of ${asOf.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+          "live"
+        );
       })
-      .catch(() => {});
+      .catch(() => setRadarStatus("radar unavailable", "error"));
   } catch (err) {
     mapEl.innerHTML = '<div style="padding:16px;color:rgba(255,255,255,0.6);font-size:13px;">Map unavailable right now.</div>';
+    setRadarStatus("map error", "error");
+  }
+}
+
+function talukColor(band) {
+  if (band === "LOW") return "#3ddc84";
+  if (band === "MODERATE") return "#f7c948";
+  return "#ff5c5c";
+}
+
+async function initFloodTalukMap() {
+  const mapEl = document.getElementById("floodMap");
+  const legendEl = document.getElementById("talukLegend");
+  try {
+    const resp = await fetch("/predict/taluk/today");
+    if (!resp.ok) throw new Error("request failed");
+    const data = await resp.json();
+
+    if (floodMap) { floodMap.remove(); floodMap = null; }
+    floodMap = L.map(mapEl, { zoomControl: false, dragging: true, scrollWheelZoom: false })
+      .setView([12.46, 75.78], 9);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 11 }).addTo(floodMap);
+
+    // Approximate taluk headquarters coordinates (same ones used by the
+    // backend's Voronoi split) - the API doesn't return lat/lon per taluk,
+    // so they're reproduced here just for marker placement.
+    const taluCoords = {
+      Madikeri: [12.4244, 75.7382],
+      Virajpet: [12.1936, 75.8064],
+      Somwarpet: [12.5985, 75.8517],
+    };
+
+    legendEl.innerHTML = "";
+    data.taluks.forEach((t) => {
+      const coords = taluCoords[t.taluk];
+      if (!coords) return;
+      const color = talukColor(t.risk_band);
+      L.circleMarker(coords, {
+        radius: 16,
+        color: "#fff",
+        weight: 2,
+        fillColor: color,
+        fillOpacity: 0.85,
+      })
+        .addTo(floodMap)
+        .bindPopup(`<b>${t.taluk}</b><br>${t.risk_band} (${Math.round(t.flood_risk_probability * 100)}%)`);
+
+      const legendItem = document.createElement("div");
+      legendItem.innerHTML = `<span class="dot" style="background:${color}"></span>${t.taluk}: ${t.risk_band} (${Math.round(t.flood_risk_probability * 100)}%)`;
+      legendEl.appendChild(legendItem);
+    });
+  } catch (err) {
+    mapEl.innerHTML = '<div style="padding:12px;color:rgba(255,255,255,0.5);font-size:12px;">Per-taluk map unavailable right now.</div>';
   }
 }
 
@@ -201,15 +282,28 @@ function render(data) {
   if (data.flood_risk_available && data.flood_risk) {
     floodBanner.hidden = false;
     const fr = data.flood_risk;
+    const pct = Math.round(fr.flood_risk_probability * 100);
+
+    floodBanner.className = "flood-banner band-" + fr.risk_band;
+
+    const gauge = document.getElementById("floodGauge");
+    gauge.style.setProperty("--gauge-pct", pct);
+    gauge.style.setProperty("--gauge-color", talukColor(fr.risk_band));
+
+    document.getElementById("floodPct").textContent = pct + "%";
     const bandEl = document.getElementById("floodBand");
-    bandEl.textContent = `${fr.risk_band} (${Math.round(fr.flood_risk_probability * 100)}%)`;
-    bandEl.className = "flood-band " + fr.risk_band;
+    bandEl.textContent = fr.risk_band;
+    bandEl.className = "gauge-band " + fr.risk_band;
+
     document.getElementById("floodSub").textContent =
-      `Most recent real data: ${fr.most_recent_real_data_date}`;
+      `As of ${fr.most_recent_real_data_date}`;
+
     const why = document.getElementById("floodWhy");
     why.innerHTML = fr.explanation
       .map(e => `<div><span class="${e.direction}">${e.direction === "up" ? "↑" : "↓"} ${e.feature}</span></div>`)
       .join("");
+
+    initFloodTalukMap();
   } else {
     floodBanner.hidden = true;
   }
@@ -221,6 +315,7 @@ function render(data) {
 // ---------- Fetching ----------
 
 async function loadByCoords(lat, lon, name, admin1, country) {
+  const requestId = ++currentRequestId;
   setStatus(`Loading weather for ${name || "your location"}…`);
   try {
     const params = new URLSearchParams({ lat, lon });
@@ -229,19 +324,26 @@ async function loadByCoords(lat, lon, name, admin1, country) {
     if (country) params.set("country", country);
     const resp = await fetch(`/weather-by-coords?${params.toString()}`);
     if (!resp.ok) throw new Error((await resp.json()).detail || "Request failed");
-    render(await resp.json());
+    const json = await resp.json();
+    if (requestId !== currentRequestId) return; // a newer request has since started - discard this stale one
+    render(json);
   } catch (err) {
+    if (requestId !== currentRequestId) return;
     setStatus(`Couldn't load weather: ${err.message}`, true);
   }
 }
 
 async function loadByName(query) {
+  const requestId = ++currentRequestId;
   setStatus(`Looking up "${query}"…`);
   try {
     const resp = await fetch(`/weather/${encodeURIComponent(query)}`);
     if (!resp.ok) throw new Error((await resp.json()).detail || "Request failed");
-    render(await resp.json());
+    const json = await resp.json();
+    if (requestId !== currentRequestId) return;
+    render(json);
   } catch (err) {
+    if (requestId !== currentRequestId) return;
     setStatus(`Couldn't load weather: ${err.message}`, true);
   }
 }
