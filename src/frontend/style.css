@@ -208,6 +208,16 @@ body {
 
 #map { height: 300px; border-radius: 12px; overflow: hidden; }
 
+.radar-status {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  margin-left: 8px;
+}
+.radar-status.live { color: var(--low); }
+.radar-status.none { color: var(--text-faint); }
+.radar-status.error { color: var(--text-faint); }
+
 .stat-big { font-size: 34px; font-weight: 300; margin-bottom: 4px; }
 .stat-sub { font-size: 13px; color: var(--text-dim); }
 
@@ -231,27 +241,105 @@ body {
 /* ---------- Flood banner ---------- */
 
 .flood-banner {
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  flex-wrap: wrap;
-  padding: 20px 24px;
+  padding: 22px 26px 26px;
   border-radius: var(--radius);
-  background: linear-gradient(120deg, rgba(255, 92, 92, 0.22), rgba(255, 92, 92, 0.08));
-  border: 1px solid rgba(255, 92, 92, 0.35);
   margin-bottom: 20px;
+  border: 1px solid rgba(255, 92, 92, 0.35);
+  background: linear-gradient(120deg, rgba(255, 92, 92, 0.20), rgba(255, 92, 92, 0.06));
+  transition: background 0.4s ease, border-color 0.4s ease;
 }
 
-.flood-banner-title { font-size: 12px; letter-spacing: 0.6px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+.flood-banner.band-LOW {
+  border-color: rgba(61, 220, 132, 0.4);
+  background: linear-gradient(120deg, rgba(61, 220, 132, 0.18), rgba(13, 79, 92, 0.12));
+}
 
-.flood-band { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
-.flood-band.LOW { color: var(--low); }
-.flood-band.MODERATE { color: var(--moderate); }
-.flood-band.HIGH { color: var(--high); }
+.flood-banner.band-MODERATE {
+  border-color: rgba(247, 201, 72, 0.45);
+  background: linear-gradient(120deg, rgba(247, 201, 72, 0.2), rgba(255, 154, 61, 0.08));
+}
 
-.flood-sub { font-size: 13px; color: var(--text-dim); }
+.flood-banner.band-HIGH {
+  border-color: rgba(255, 92, 92, 0.5);
+  background: linear-gradient(120deg, rgba(255, 92, 92, 0.3), rgba(255, 92, 92, 0.1));
+}
 
-.flood-why { font-size: 13px; line-height: 1.7; min-width: 220px; }
+.flood-banner-title {
+  font-size: 12px;
+  letter-spacing: 0.6px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.flood-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--text-dim);
+}
+
+.flood-banner-body {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.flood-mini-title { font-size: 10px; letter-spacing: 0.5px; color: var(--text-dim); font-weight: 700; margin-bottom: 10px; }
+
+/* Gauge */
+
+.gauge-wrap { flex: 0 0 150px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; }
+
+.gauge {
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: conic-gradient(var(--gauge-color, var(--low)) calc(var(--gauge-pct, 0) * 1%), rgba(255, 255, 255, 0.12) 0);
+  transition: background 0.6s ease;
+}
+
+.gauge-inner {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: #141f36;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.gauge-pct { font-size: 26px; font-weight: 700; }
+.gauge-band { font-size: 11px; letter-spacing: 0.5px; font-weight: 700; }
+.gauge-band.LOW { color: var(--low); }
+.gauge-band.MODERATE { color: var(--moderate); }
+.gauge-band.HIGH { color: var(--high); }
+
+.flood-sub { font-size: 12px; color: var(--text-dim); }
+
+/* Taluk mini-map */
+
+.flood-taluk-map-wrap { flex: 1 1 260px; min-width: 240px; }
+#floodMap { height: 160px; border-radius: 12px; overflow: hidden; }
+.taluk-legend { display: flex; gap: 14px; margin-top: 10px; flex-wrap: wrap; font-size: 12px; }
+.taluk-legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+
+/* Why */
+
+.flood-why-wrap { flex: 1 1 220px; min-width: 200px; }
+.flood-why { font-size: 13px; line-height: 1.8; }
 .flood-why .up { color: #ff9b9b; }
 .flood-why .down { color: #9bffc0; }
 
