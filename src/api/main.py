@@ -14,8 +14,10 @@ Then visit http://localhost:8000/docs for interactive API docs
 """
 
 import datetime
+import math
 import os
 import sys
+import time
 import warnings
 from contextlib import asynccontextmanager
 
@@ -33,8 +35,11 @@ from xgboost import XGBClassifier
 
 from feature_engineering_daily import FEATURE_COLUMNS as DAILY_FEATURES, run as build_daily_features
 from feature_engineering_taluk import FEATURE_COLUMNS as TALUK_FEATURES, TALUKS, run as build_taluk_features
+from predict_daily import compute_outlook as compute_daily_outlook
+from predict_taluk import TALUK_COORDS, compute_outlook_taluk
 
 MODELS = {}
+OUTLOOK_CACHE_TTL = 600  # seconds - avoids hitting Open-Meteo on every page load
 
 
 def train_daily_model():
@@ -106,6 +111,55 @@ def shap_explanation(xgb, X_row, feature_names, top_n=5):
     ]
 
 
+def nearest_taluk(lat, lon):
+    """Which of the 3 taluks' HQ is closest to a given point - used so a
+    search for a specific place inside Kodagu (e.g. 'Virajpet') shows that
+    taluk's own bridged prediction in the gauge, matching the marker
+    already highlighted for it on the per-taluk map, instead of a
+    different whole-district number."""
+    def haversine_km(lat1, lon1, lat2, lon2):
+        R = 6371.0
+        p1, p2 = math.radians(lat1), math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlambda = math.radians(lon2 - lon1)
+        a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
+        return 2 * R * math.asin(math.sqrt(a))
+    return min(TALUK_COORDS, key=lambda t: haversine_km(lat, lon, *TALUK_COORDS[t]))
+
+
+def get_daily_outlook():
+    """Cached (10 min TTL) bridged-to-today outlook for the whole
+    district - computing it calls the live Open-Meteo forecast API, so
+    this avoids doing that on every single page load."""
+    cached = MODELS.get("daily_outlook_cache")
+    if cached and time.time() - cached["ts"] < OUTLOOK_CACHE_TTL:
+        return cached["outlook"], cached["last_real"], cached["bridge_days"], cached["live_forecast"]
+    xgb, df = MODELS["daily_xgb"], MODELS["daily_df"]
+    outlook, last_real, bridge_days, live_forecast = compute_daily_outlook(df, xgb)
+    MODELS["daily_outlook_cache"] = {
+        "ts": time.time(), "outlook": outlook, "last_real": last_real,
+        "bridge_days": bridge_days, "live_forecast": live_forecast,
+    }
+    return outlook, last_real, bridge_days, live_forecast
+
+
+def get_taluk_outlook(taluk):
+    """Same caching idea as get_daily_outlook(), keyed per taluk (each
+    one fetches its own live forecast at its own coordinates)."""
+    cache_key = f"taluk_outlook_cache:{taluk}"
+    cached = MODELS.get(cache_key)
+    if cached and time.time() - cached["ts"] < OUTLOOK_CACHE_TTL:
+        return (cached["outlook"], cached["last_real"], cached["bridge_days"],
+                cached["live_forecast"], cached["terrain"])
+    xgb, df = MODELS["taluk_xgb"], MODELS["taluk_df"]
+    outlook, last_real, bridge_days, live_forecast, terrain = compute_outlook_taluk(df, xgb, taluk)
+    MODELS[cache_key] = {
+        "ts": time.time(), "outlook": outlook, "last_real": last_real,
+        "bridge_days": bridge_days, "live_forecast": live_forecast, "terrain": terrain,
+    }
+    return outlook, last_real, bridge_days, live_forecast, terrain
+
+
 @app.get("/api")
 def root():
     # NOT mounted at "/" - the dashboard (src/frontend/index.html) owns the
@@ -114,7 +168,7 @@ def root():
         "name": "Kodagu Flood Risk API",
         "docs": "/docs",
         "endpoints": [
-            "/health", "/predict/today", "/predict/historical/{date}",
+            "/health", "/predict/today", "/predict/outlook", "/predict/historical/{date}",
             "/predict/taluk/today", "/predict/taluk/historical/{date}",
             "/weather/{location}", "/weather-by-coords?lat=&lon=",
             "/geocode-search?q=", "/models/comparison",
@@ -130,18 +184,33 @@ def health():
 
 @app.get("/predict/today")
 def predict_today():
-    xgb, df = MODELS["daily_xgb"], MODELS["daily_df"]
-    latest = df.sort_values("date").iloc[-1]
-    X_row = latest[DAILY_FEATURES].values.reshape(1, -1)
-    prob = float(xgb.predict_proba(X_row)[0, 1])
+    outlook, last_real, bridge_days, live_forecast = get_daily_outlook()
+    today = outlook[0]
     return {
-        "most_recent_real_data_date": str(latest["date"].date()),
-        "flood_risk_probability": round(prob, 4),
-        "risk_band": risk_band(prob),
-        "explanation": shap_explanation(xgb, X_row, DAILY_FEATURES),
-        "note": "This is the most recent available day's conditions, not bridged to "
-                "today's calendar date. For a live-forecast-bridged 10-day outlook, "
-                "use predict_daily.py directly.",
+        "date": str(today["date"].date()),
+        "flood_risk_probability": round(float(today["prob"]), 4),
+        "risk_band": risk_band(today["prob"]),
+        "is_live_input": today["is_live_input"],
+        "bridge_days": bridge_days,
+        "live_forecast_used": live_forecast,
+        "most_recent_real_data_date": str(last_real["date"].date()),
+    }
+
+
+@app.get("/predict/outlook")
+def predict_outlook():
+    """10-day bridged flood-risk outlook for the whole district, starting
+    today - backs the dashboard's outlook chart."""
+    outlook, last_real, bridge_days, live_forecast = get_daily_outlook()
+    return {
+        "bridge_days": bridge_days,
+        "live_forecast_used": live_forecast,
+        "most_recent_real_data_date": str(last_real["date"].date()),
+        "days": [
+            {"date": str(o["date"].date()), "flood_risk_probability": round(float(o["prob"]), 4),
+             "risk_band": risk_band(o["prob"]), "is_live_input": o["is_live_input"]}
+            for o in outlook
+        ],
     }
 
 
@@ -179,20 +248,20 @@ def predict_historical(date: str):
 
 @app.get("/predict/taluk/today")
 def predict_taluk_today():
-    xgb, df = MODELS["taluk_xgb"], MODELS["taluk_df"]
     results = []
     for taluk in TALUKS:
-        sub = df[df["taluk"] == taluk].sort_values("date")
-        latest = sub.iloc[-1]
-        X_row = latest[TALUK_FEATURES].values.reshape(1, -1)
-        prob = float(xgb.predict_proba(X_row)[0, 1])
+        outlook, last_real, bridge_days, live_forecast, terrain = get_taluk_outlook(taluk)
+        today = outlook[0]
         results.append({
             "taluk": taluk,
-            "most_recent_real_data_date": str(latest["date"].date()),
-            "flood_risk_probability": round(prob, 4),
-            "risk_band": risk_band(prob),
-            "elevation_m": round(float(latest["elevation_m"]), 1),
-            "slope_degrees": round(float(latest["slope_degrees"]), 1),
+            "date": str(today["date"].date()),
+            "flood_risk_probability": round(float(today["prob"]), 4),
+            "risk_band": risk_band(today["prob"]),
+            "is_live_input": today["is_live_input"],
+            "bridge_days": bridge_days,
+            "most_recent_real_data_date": str(last_real["date"].date()),
+            "elevation_m": round(terrain["elevation_m"], 1),
+            "slope_degrees": round(terrain["slope_degrees"], 1),
         })
     return {"taluks": results}
 
@@ -276,7 +345,18 @@ def _build_weather_response(loc, data):
         response["air_quality"] = air
 
     if response["flood_risk_available"]:
-        response["flood_risk"] = predict_today()
+        taluk = nearest_taluk(loc["lat"], loc["lon"])
+        outlook, last_real, bridge_days, live_forecast, terrain = get_taluk_outlook(taluk)
+        today = outlook[0]
+        response["flood_risk"] = {
+            "taluk": taluk,
+            "date": str(today["date"].date()),
+            "flood_risk_probability": round(float(today["prob"]), 4),
+            "risk_band": risk_band(today["prob"]),
+            "is_live_input": today["is_live_input"],
+            "bridge_days": bridge_days,
+            "most_recent_real_data_date": str(last_real["date"].date()),
+        }
 
     return response
 

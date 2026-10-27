@@ -113,7 +113,8 @@ function initMap(lat, lon, label) {
         L.tileLayer(tileUrl, { opacity: 0.6, maxZoom: 12 }).addTo(leafletMap);
         const asOf = new Date(latest.time * 1000);
         setRadarStatus(
-          `radar live, as of ${asOf.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+          `radar live, as of ${asOf.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} ` +
+            `(clear = no rain nearby, not broken)`,
           "live"
         );
       })
@@ -175,6 +176,84 @@ async function initFloodTalukMap() {
     mapEl.innerHTML = '<div style="padding:12px;color:rgba(255,255,255,0.5);font-size:12px;">Per-taluk map unavailable right now.</div>';
   }
 }
+
+// ---------- 10-day outlook chart ----------
+
+async function initOutlookChart() {
+  const svg = document.getElementById("outlookChart");
+  const legend = document.getElementById("outlookLegend");
+  try {
+    const resp = await fetch("/predict/outlook");
+    if (!resp.ok) throw new Error("request failed");
+    const data = await resp.json();
+    renderOutlookChart(svg, data.days);
+    const lastDate = new Date(data.days[data.days.length - 1].date + "T00:00:00");
+    legend.innerHTML = `<span>Today</span><span>${lastDate.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>`;
+  } catch (err) {
+    svg.innerHTML = "";
+    legend.innerHTML = '<span style="color:var(--text-faint)">Outlook unavailable right now.</span>';
+  }
+}
+
+function renderOutlookChart(svg, days) {
+  const W = 320, H = 110, padTop = 6, padBottom = 18;
+  const maxH = H - padTop - padBottom;
+  const n = days.length;
+  const slot = W / n;
+  const barW = slot * 0.62;
+  const baseline = padTop + maxH;
+
+  let parts = `<line x1="0" y1="${baseline}" x2="${W}" y2="${baseline}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
+  days.forEach((d, i) => {
+    const x = i * slot + (slot - barW) / 2;
+    const h = Math.max(3, d.flood_risk_probability * maxH);
+    const y = baseline - h;
+    const color = talukColor(d.risk_band);
+    const opacity = d.is_live_input ? 1 : 0.55;
+    const label = i === 0 ? "Today" : `+${i}d`;
+    parts += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${color}" opacity="${opacity}"><title>${label} (${d.date}): ${Math.round(d.flood_risk_probability * 100)}% ${d.risk_band}${d.is_live_input ? "" : " (trend-projected)"}</title></rect>`;
+    parts += `<text x="${(x + barW / 2).toFixed(1)}" y="${H - 4}" font-size="8" fill="var(--text-faint)" text-anchor="middle">${label}</text>`;
+  });
+  svg.innerHTML = parts;
+}
+
+// ---------- Historical date picker ----------
+
+const historyForm = document.getElementById("historyForm");
+const historyResult = document.getElementById("historyResult");
+
+document.getElementById("historyDate").max = new Date().toISOString().slice(0, 10);
+
+historyForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const date = document.getElementById("historyDate").value;
+  if (!date) return;
+  historyResult.innerHTML = "Checking…";
+  try {
+    const resp = await fetch(`/predict/historical/${date}`);
+    const body = await resp.json();
+    if (!resp.ok) {
+      historyResult.innerHTML = `<div class="h-error">${body.detail || "No data for that date."}</div>`;
+      return;
+    }
+    const pct = Math.round(body.flood_risk_probability * 100);
+    const actualText = body.actual_outcome === "flood_risk_day" ? "flood-risk day" : "normal day";
+    const matchText = body.model_matched_actual ? "model matched the real outcome ✓" : "model missed the real outcome ✗";
+    const why = body.explanation
+      .map((f) => `<span class="${f.direction}">${f.direction === "up" ? "↑" : "↓"} ${f.feature}</span>`)
+      .join(" &nbsp; ");
+    historyResult.innerHTML = `
+      <div class="h-row">
+        <span class="h-band ${body.risk_band}">${body.risk_band} RISK</span>
+        <span>${pct}%</span>
+        <span class="h-match">Actual: ${actualText} — ${matchText}</span>
+      </div>
+      <div class="h-why">${why}</div>
+    `;
+  } catch (err) {
+    historyResult.innerHTML = '<div class="h-error">Couldn\'t check that date right now.</div>';
+  }
+});
 
 // ---------- Render ----------
 
@@ -295,15 +374,15 @@ function render(data) {
     bandEl.textContent = fr.risk_band;
     bandEl.className = "gauge-band " + fr.risk_band;
 
-    document.getElementById("floodSub").textContent =
-      `As of ${fr.most_recent_real_data_date}`;
-
-    const why = document.getElementById("floodWhy");
-    why.innerHTML = fr.explanation
-      .map(e => `<div><span class="${e.direction}">${e.direction === "up" ? "↑" : "↓"} ${e.feature}</span></div>`)
-      .join("");
+    const dateLabel = new Date(fr.date + "T00:00:00").toLocaleDateString(undefined, {
+      weekday: "short", month: "short", day: "numeric",
+    });
+    const sourceNote = fr.bridge_days > 0 ? (fr.is_live_input ? " · live forecast" : " · trend-based") : "";
+    document.getElementById("floodSub").textContent = dateLabel + sourceNote;
+    document.getElementById("floodTalukTag").textContent = fr.taluk ? fr.taluk + " taluk" : "";
 
     initFloodTalukMap();
+    initOutlookChart();
   } else {
     floodBanner.hidden = true;
   }

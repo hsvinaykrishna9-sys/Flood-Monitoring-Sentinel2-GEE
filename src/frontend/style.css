@@ -134,6 +134,13 @@ body {
 
 .status-box.error-text { color: #ffb4ae; }
 
+/* The `hidden` attribute's UA default (display:none) loses to this
+   file's own `.status-box { display: flex }` rule above - same-origin
+   author CSS always wins over the UA stylesheet regardless of
+   specificity, so without this override the "Loading weather..." box
+   stays visibly on screen forever, even after JS sets hidden=true. */
+.status-box[hidden] { display: none; }
+
 /* ---------- Content layout ---------- */
 
 .content { padding: 24px 32px 48px; flex: 1; }
@@ -329,6 +336,16 @@ body {
 
 .flood-sub { font-size: 12px; color: var(--text-dim); }
 
+.flood-taluk-tag {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-dim);
+}
+
 /* Taluk mini-map */
 
 .flood-taluk-map-wrap { flex: 1 1 260px; min-width: 240px; }
@@ -336,12 +353,54 @@ body {
 .taluk-legend { display: flex; gap: 14px; margin-top: 10px; flex-wrap: wrap; font-size: 12px; }
 .taluk-legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
 
-/* Why */
+/* Outlook chart */
 
-.flood-why-wrap { flex: 1 1 220px; min-width: 200px; }
-.flood-why { font-size: 13px; line-height: 1.8; }
-.flood-why .up { color: #ff9b9b; }
-.flood-why .down { color: #9bffc0; }
+.flood-outlook-wrap { flex: 1 1 280px; min-width: 260px; }
+.outlook-chart { width: 100%; height: 110px; display: block; overflow: visible; }
+.outlook-legend {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+/* Historical date picker */
+
+.flood-history-wrap { margin-top: 2px; }
+
+.history-form { display: flex; gap: 10px; align-items: center; margin: 10px 0 14px; }
+.history-form input[type="date"] {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 7px 10px;
+  color-scheme: dark;
+}
+.history-form button {
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 7px 16px;
+  cursor: pointer;
+}
+.history-form button:hover { background: rgba(255, 255, 255, 0.18); }
+
+.history-result { font-size: 13px; line-height: 1.7; min-height: 20px; }
+.history-result .h-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.history-result .h-band { font-weight: 700; }
+.history-result .h-band.LOW { color: var(--low); }
+.history-result .h-band.MODERATE { color: var(--moderate); }
+.history-result .h-band.HIGH { color: var(--high); }
+.history-result .h-match { color: var(--text-dim); font-size: 12px; }
+.history-result .h-why { margin-top: 8px; color: var(--text-dim); font-size: 12px; }
+.history-result .h-why span.up { color: #ff9b9b; }
+.history-result .h-why span.down { color: #9bffc0; }
+.history-result .h-error { color: #ffb4ae; }
 
 /* ---------- Footer ---------- */
 

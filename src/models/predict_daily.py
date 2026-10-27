@@ -288,70 +288,35 @@ def run_historical_check(target_date_str):
     print("=" * 66)
 
 
-def run():
-    if len(sys.argv) > 2:
-        run_historical_range_check(sys.argv[1], sys.argv[2])
-        return
-    if len(sys.argv) > 1:
-        run_historical_check(sys.argv[1])
-        return
-
-    df = build_features()
-
-    X = df[FEATURE_COLUMNS].values
-    y = df["flood_risk"].values
-
-    xgb = XGBClassifier(n_estimators=300, max_depth=4, learning_rate=0.1,
-                         eval_metric="logloss", random_state=42)
-    xgb.fit(X, y)
-
-    # rolling "known history" buffer, starts as the real observed data
+def compute_outlook(df, xgb, n_outlook_days=N_OUTLOOK_DAYS):
+    """The bridge-to-today + recursive-projection logic, factored out so
+    both the CLI (run(), below) and the API can get a genuine "today"
+    prediction anchored to the real calendar date, not just the most
+    recent row in the (structurally lagged) real dataset. Returns
+    (outlook, last_real, bridge_days, live_forecast_used):
+      outlook: list of dicts {date, prob, pred, is_live_input, X_row} for
+        the n_outlook_days window starting today
+      last_real: the last real (non-bridged) observed row, as a dict
+      bridge_days: how many days of gap were bridged
+      live_forecast_used: whether a real Open-Meteo forecast was used for
+        any of the bridging (vs. falling back to trend projection)
+    """
     raw_cols = ["date", "rainfall_mm", "runoff_mm", "soil_moisture_m3m3",
                 "temperature_C", "relative_humidity_pct", "wind_speed_ms"]
     history = df[raw_cols].to_dict("records")
-    history_live = [True] * len(history)  # all real observed data so far
-
+    history_live = [True] * len(history)
     last_real = history[-1]
-    W = 74
 
-    def box_line(visible_text, colored_text=None):
-        colored_text = colored_text if colored_text is not None else visible_text
-        pad = max(0, (W - 2) - len(visible_text))
-        print(f"│{colored_text}{' ' * pad}│")
-
-    print("┌" + "─" * (W - 2) + "┐")
-    box_line(" MY LOCATION", f" {BOLD}MY LOCATION{RESET}")
-    box_line(" Kodagu District, Karnataka", f" {BOLD}Kodagu District, Karnataka{RESET}")
-    box_line("")
-    box_line(f"  Last observed: {last_real['date'].date()}")
-    cond_line = (f"  Rainfall {last_real['rainfall_mm']:.1f}mm   "
-                 f"Runoff {last_real['runoff_mm']:.1f}mm   "
-                 f"Soil moisture {last_real['soil_moisture_m3m3']:.2f} m3/m3")
-    box_line(cond_line)
-    print("└" + "─" * (W - 2) + "┘")
-    print()
-
-    # Bridge the gap between the last real ERA5-Land data point and the
-    # actual current date (ERA5-Land always lags real-time by roughly a
-    # week or more) so the displayed outlook is anchored to TODAY, not to
-    # whatever date the satellite/reanalysis data happened to stop at.
     real_today = pd.Timestamp(datetime.date.today())
     bridge_days = max(0, (real_today - last_real["date"]).days)
-    # all_predictions[k] will hold the date (last_real_date + k+1 days), so the
-    # entry for "today" sits at index (bridge_days - 1); floor at 0 for the
-    # (practically impossible) case where the data is already fully current.
     today_index = max(bridge_days - 1, 0)
-    total_steps = today_index + N_OUTLOOK_DAYS
+    total_steps = today_index + n_outlook_days
 
-    # try to fetch a real rainfall/temp/humidity/wind forecast to replace the
-    # trend-projection for as many of these days as possible; None (no
-    # network, API error) just means every day below falls back exactly as
-    # before - never a crash, never a regression
-    live_forecast = fetch_live_forecast(past_days=bridge_days, forecast_days=N_OUTLOOK_DAYS + 2)
+    live_forecast = fetch_live_forecast(past_days=bridge_days, forecast_days=n_outlook_days + 2)
 
     all_predictions = []
     all_X_rows = []
-    input_live_flags = []  # was the lag-1 day feeding THIS prediction real/live data?
+    input_live_flags = []
     for step in range(total_steps):
         row, next_date = build_next_day_row(history)
         input_live_flags.append(history_live[-1])
@@ -361,11 +326,6 @@ def run():
         all_predictions.append((next_date, prob, pred))
         all_X_rows.append(X_next)
 
-        # extend the "known history": use the real forecast for this day if
-        # we have it, otherwise fall back to trend projection (persistence of
-        # recent rolling averages) so the next iteration's lag features are
-        # always defined. Soil moisture and runoff are always trend-projected -
-        # Open-Meteo doesn't forecast either.
         fc = live_forecast.get(next_date.strftime("%Y-%m-%d")) if live_forecast else None
         if fc:
             new_rainfall = fc["rainfall_mm"]
@@ -390,13 +350,58 @@ def run():
         })
         history_live.append(fc is not None)
 
-    # only the last N_OUTLOOK_DAYS (today onward) are actually displayed;
-    # the bridge days were needed to advance the lag/rolling features but
-    # aren't shown individually
-    outlook = all_predictions[today_index:today_index + N_OUTLOOK_DAYS]
-    outlook_live_flags = input_live_flags[today_index:today_index + N_OUTLOOK_DAYS]
-    assert outlook[0][0].date() == real_today.date(), \
-        f"expected first outlook day to be today ({real_today.date()}), got {outlook[0][0].date()}"
+    outlook_predictions = all_predictions[today_index:today_index + n_outlook_days]
+    outlook_X_rows = all_X_rows[today_index:today_index + n_outlook_days]
+    outlook_live_flags = input_live_flags[today_index:today_index + n_outlook_days]
+
+    assert outlook_predictions[0][0].date() == real_today.date(), \
+        f"expected first outlook day to be today ({real_today.date()}), got {outlook_predictions[0][0].date()}"
+
+    outlook = [
+        {"date": d, "prob": p, "pred": pr, "is_live_input": live, "X_row": xr}
+        for (d, p, pr), xr, live in zip(outlook_predictions, outlook_X_rows, outlook_live_flags)
+    ]
+    return outlook, last_real, bridge_days, live_forecast is not None
+
+
+def run():
+    if len(sys.argv) > 2:
+        run_historical_range_check(sys.argv[1], sys.argv[2])
+        return
+    if len(sys.argv) > 1:
+        run_historical_check(sys.argv[1])
+        return
+
+    df = build_features()
+
+    X = df[FEATURE_COLUMNS].values
+    y = df["flood_risk"].values
+
+    xgb = XGBClassifier(n_estimators=300, max_depth=4, learning_rate=0.1,
+                         eval_metric="logloss", random_state=42)
+    xgb.fit(X, y)
+
+    outlook, last_real, bridge_days, live_forecast = compute_outlook(df, xgb)
+    outlook_live_flags = [o["is_live_input"] for o in outlook]
+
+    W = 74
+
+    def box_line(visible_text, colored_text=None):
+        colored_text = colored_text if colored_text is not None else visible_text
+        pad = max(0, (W - 2) - len(visible_text))
+        print(f"│{colored_text}{' ' * pad}│")
+
+    print("┌" + "─" * (W - 2) + "┐")
+    box_line(" MY LOCATION", f" {BOLD}MY LOCATION{RESET}")
+    box_line(" Kodagu District, Karnataka", f" {BOLD}Kodagu District, Karnataka{RESET}")
+    box_line("")
+    box_line(f"  Last observed: {last_real['date'].date()}")
+    cond_line = (f"  Rainfall {last_real['rainfall_mm']:.1f}mm   "
+                 f"Runoff {last_real['runoff_mm']:.1f}mm   "
+                 f"Soil moisture {last_real['soil_moisture_m3m3']:.2f} m3/m3")
+    box_line(cond_line)
+    print("└" + "─" * (W - 2) + "┘")
+    print()
 
     if bridge_days > 0:
         print(f" {DIM}Real satellite/weather data currently ends {last_real['date'].date()}"
@@ -405,12 +410,12 @@ def run():
               f" using recent trends so this outlook lines up with today's date.{RESET}")
         print()
 
-    today_prob, today_pred = outlook[0][1], outlook[0][2]
-    band, color = risk_band(today_prob)
-    print(f" {BOLD}TODAY{RESET}  ({real_today.date()}, {DAY_NAMES[real_today.weekday()]})"
-          f"   {color}{BOLD}{band} RISK{RESET}   ({today_prob:.0%} probability)")
+    today = outlook[0]
+    band, color = risk_band(today["prob"])
+    print(f" {BOLD}TODAY{RESET}  ({today['date'].date()}, {DAY_NAMES[today['date'].weekday()]})"
+          f"   {color}{BOLD}{band} RISK{RESET}   ({today['prob']:.0%} probability)")
     print()
-    print_explanation(explain_prediction(xgb, all_X_rows[today_index]))
+    print_explanation(explain_prediction(xgb, today["X_row"]))
     print()
     print(f" {BOLD}{N_OUTLOOK_DAYS}-DAY FLOOD RISK OUTLOOK (today + next {N_OUTLOOK_DAYS - 1} days){RESET}")
     if live_forecast:
@@ -425,11 +430,12 @@ def run():
         print(f" data, confidence drops the further out you go, same as any weather forecast.{RESET}")
     print("─" * W)
 
-    outlook_dated_probs = [(date, prob) for date, prob, _ in outlook]
+    outlook_dated_probs = [(o["date"], o["prob"]) for o in outlook]
     watch_periods = detect_watch_periods(outlook_dated_probs)
     print_watch_banner(outlook_dated_probs, watch_periods, W)
 
-    for i, (date, prob, pred) in enumerate(outlook, start=0):
+    for i, o in enumerate(outlook):
+        date, prob = o["date"], o["prob"]
         band, color = risk_band(prob)
         label = "Today" if i == 0 else f"Day +{i}"
         day_str = f"{date.strftime('%b %d')} ({DAY_NAMES[date.weekday()]})"
