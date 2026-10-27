@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kodagu Flood &amp; Weather</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <header class="topbar">
+      <div class="home-label" id="homeLabel" hidden>
+        <span class="house-icon">&#8962;</span> CURRENT LOCATION
+      </div>
+      <form id="searchForm" class="search-form">
+        <input id="searchInput" type="text" placeholder="Search a city (e.g. Kodagu, Mysore)" autocomplete="off" />
+        <button type="submit" aria-label="Search">&#128269;</button>
+      </form>
+    </header>
+
+    <main>
+      <section id="statusBox" class="status-box">Getting your location…</section>
+
+      <section id="weatherCard" class="weather-card" hidden>
+        <div class="location-name" id="locationName"></div>
+        <div class="current-temp" id="currentTemp"></div>
+        <div class="condition" id="condition"></div>
+        <div class="hilo" id="hilo"></div>
+
+        <div class="card glass">
+          <div class="card-title">NEXT HOURS</div>
+          <div class="hourly-strip" id="hourlyStrip"></div>
+        </div>
+
+        <div class="card glass">
+          <div class="card-title">NEXT DAYS</div>
+          <div class="daily-list" id="dailyList"></div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="card glass stat">
+            <div class="card-title">HUMIDITY</div>
+            <div class="stat-value" id="humidity"></div>
+          </div>
+          <div class="card glass stat">
+            <div class="card-title">WIND</div>
+            <div class="stat-value" id="wind"></div>
+          </div>
+        </div>
+
+        <div id="floodCard" class="card flood-card" hidden>
+          <div class="card-title flood-title">&#9873; FLOOD RISK — KODAGU MODEL</div>
+          <div class="flood-band" id="floodBand"></div>
+          <div class="flood-sub" id="floodSub"></div>
+          <div class="flood-why" id="floodWhy"></div>
+          <div class="flood-note">This district-specific model only runs here, inside Kodagu — it's not applied to any other location.</div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <a href="/api" target="_blank" rel="noopener">API</a>
+      ·
+      <a href="/docs" target="_blank" rel="noopener">API docs</a>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

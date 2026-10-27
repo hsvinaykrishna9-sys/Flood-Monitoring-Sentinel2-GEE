@@ -1,0 +1,18 @@
+# Slim dependency set for deploying ONLY the API (src/api/main.py) and the
+# dashboard it serves. Deliberately excludes tensorflow-cpu and matplotlib -
+# the API never imports either (verified: it only trains XGBoost at
+# startup, and never generates plots). Using the full requirements.txt for
+# deployment would make the build much larger and slower for no reason, and
+# raises real risk of hitting a free hosting tier's memory/time limits.
+#
+# For local development (running the EDA, training all 8 models including
+# LSTM, generating report plots), keep using requirements.txt instead.
+
+pandas
+numpy
+requests
+scikit-learn
+xgboost
+shap
+fastapi
+uvicorn[standard]

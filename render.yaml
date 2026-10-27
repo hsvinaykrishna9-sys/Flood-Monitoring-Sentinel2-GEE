@@ -1,0 +1,14 @@
+# Render Blueprint - deploys the API + dashboard as one web service.
+# See DEPLOY.md for step-by-step instructions (connect this repo on
+# render.com, it auto-detects this file).
+services:
+  - type: web
+    name: kodagu-flood-risk
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements-api.txt
+    startCommand: uvicorn src.api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+    healthCheckPath: /health
