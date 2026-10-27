@@ -9,8 +9,13 @@ go wrong instead of two.
 
 ```bash
 pip install -r requirements-api.txt
-uvicorn src.api.main:app --reload --port 8000
+uvicorn src.api.main:app --reload --reload-dir src --port 8000
 ```
+
+(`--reload-dir src` matters here — without it, `--reload` watches the whole
+project, including the CSV files the API writes to `data/processed/` on
+every startup, which triggers an endless reload loop. See the README for
+details if you hit "Reloading..." spamming the terminal.)
 
 Open **http://localhost:8000** in your browser. You should see the
 dashboard, your browser should ask for location permission, and (if you

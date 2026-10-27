@@ -298,11 +298,13 @@ python3 src/models/weather_app.py "Bengaluru"
 ### REST API + Dashboard
 ```bash
 pip install -r requirements-api.txt
-uvicorn src.api.main:app --reload --port 8000
+uvicorn src.api.main:app --reload --reload-dir src --port 8000
 # then open http://localhost:8000 for the dashboard,
 # or http://localhost:8000/docs for interactive API docs
 ```
-API endpoints: `/health`, `/predict/today`, `/predict/historical/{date}`, `/predict/taluk/today`, `/predict/taluk/historical/{date}`, `/weather/{location}`, `/weather-by-coords?lat=&lon=`, `/models/comparison`.
+`--reload-dir src` matters: on startup, the API writes its processed feature CSVs to `data/processed/` (same files the CLI tools produce). Without `--reload-dir src`, `--reload` watches the whole project by default, sees those CSVs appear, and reloads the server - which writes them again, which triggers another reload, looping forever ("Reloading..." spamming the terminal, page never finishes loading). Restricting the watch to `src/` (your actual code) fixes it.
+
+API endpoints: `/health`, `/predict/today`, `/predict/historical/{date}`, `/predict/taluk/today`, `/predict/taluk/historical/{date}`, `/weather/{location}`, `/weather-by-coords?lat=&lon=`, `/geocode-search?q=`, `/models/comparison`.
 
 The dashboard (`src/frontend/`) is a single page, no build step, no external JS/CSS libraries — it asks for your browser's location (like a phone weather app's "Home" screen) or lets you search any city, and shows the flood-risk card only when that location is inside Kodagu district.
 
