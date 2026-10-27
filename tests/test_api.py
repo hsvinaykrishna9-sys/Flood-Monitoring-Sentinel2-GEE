@@ -5,6 +5,7 @@ endpoint except /weather/{location}, which needs live network (same
 limitation as test_data_collection.py's live-API test).
 """
 
+import datetime
 import os
 import sys
 
@@ -34,7 +35,22 @@ def test_predict_today(client):
     body = r.json()
     assert body["risk_band"] in ("LOW", "MODERATE", "HIGH")
     assert 0 <= body["flood_risk_probability"] <= 1
-    assert len(body["explanation"]) == 5
+    # "today" must be bridged to the real calendar date, not whatever the
+    # most recent (structurally lagged) row in the dataset happens to be.
+    assert body["date"] == datetime.date.today().isoformat()
+    assert "bridge_days" in body
+    assert "most_recent_real_data_date" in body
+
+
+def test_predict_outlook(client):
+    r = client.get("/predict/outlook")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["days"]) == 10
+    assert body["days"][0]["date"] == datetime.date.today().isoformat()
+    for day in body["days"]:
+        assert day["risk_band"] in ("LOW", "MODERATE", "HIGH")
+        assert 0 <= day["flood_risk_probability"] <= 1
 
 
 def test_predict_historical_known_flood_day(client):

@@ -40,6 +40,7 @@
               </div>
             </div>
             <div class="flood-sub" id="floodSub"></div>
+            <div class="flood-taluk-tag" id="floodTalukTag"></div>
           </div>
 
           <div class="flood-taluk-map-wrap">
@@ -48,10 +49,22 @@
             <div class="taluk-legend" id="talukLegend"></div>
           </div>
 
-          <div class="flood-why-wrap">
-            <div class="flood-mini-title">WHY THIS NUMBER</div>
-            <div class="flood-why" id="floodWhy"></div>
+          <div class="flood-outlook-wrap">
+            <div class="flood-mini-title">10-DAY RISK OUTLOOK</div>
+            <svg id="outlookChart" class="outlook-chart" viewBox="0 0 320 110" preserveAspectRatio="none"></svg>
+            <div class="outlook-legend" id="outlookLegend"></div>
           </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="flood-history-wrap">
+          <div class="flood-mini-title">CHECK A PAST DATE (1950-2026)</div>
+          <form id="historyForm" class="history-form" autocomplete="off">
+            <input type="date" id="historyDate" min="1950-01-01" max="2026-10-27" value="2023-07-05" />
+            <button type="submit">Check</button>
+          </form>
+          <div id="historyResult" class="history-result"></div>
         </div>
       </section>
 
