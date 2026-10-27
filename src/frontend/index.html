@@ -3,69 +3,132 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Kodagu Flood &amp; Weather</title>
+  <title>Kodagu Weather &amp; Flood Watch</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="app">
 
     <header class="topbar">
-      <div class="home-label" id="homeLabel" hidden>
-        <span class="house-icon">&#8962;</span> CURRENT LOCATION
+      <div class="brand">
+        <span class="brand-icon">&#9925;</span>
+        <span class="brand-text">Kodagu Weather &amp; Flood Watch</span>
       </div>
-      <form id="searchForm" class="search-form">
-        <input id="searchInput" type="text" placeholder="Search a city (e.g. Kodagu, Mysore)" autocomplete="off" />
-        <button type="submit" aria-label="Search">&#128269;</button>
-      </form>
+      <div class="search-wrap">
+        <form id="searchForm" class="search-form" autocomplete="off">
+          <span class="search-icon">&#128269;</span>
+          <input id="searchInput" type="text" placeholder="Search any city in India (or elsewhere)…" />
+          <button type="button" id="locateBtn" class="locate-btn" title="Use my current location">&#8982;</button>
+        </form>
+        <ul id="suggestions" class="suggestions" hidden></ul>
+      </div>
     </header>
 
-    <main>
-      <section id="statusBox" class="status-box">Getting your location…</section>
+    <main id="statusBox" class="status-box">Getting your location…</main>
 
-      <section id="weatherCard" class="weather-card" hidden>
-        <div class="location-name" id="locationName"></div>
-        <div class="current-temp" id="currentTemp"></div>
-        <div class="condition" id="condition"></div>
-        <div class="hilo" id="hilo"></div>
+    <main id="content" class="content" hidden>
 
-        <div class="card glass">
-          <div class="card-title">NEXT HOURS</div>
-          <div class="hourly-strip" id="hourlyStrip"></div>
-        </div>
-
-        <div class="card glass">
-          <div class="card-title">NEXT DAYS</div>
-          <div class="daily-list" id="dailyList"></div>
-        </div>
-
-        <div class="stats-grid">
-          <div class="card glass stat">
-            <div class="card-title">HUMIDITY</div>
-            <div class="stat-value" id="humidity"></div>
-          </div>
-          <div class="card glass stat">
-            <div class="card-title">WIND</div>
-            <div class="stat-value" id="wind"></div>
-          </div>
-        </div>
-
-        <div id="floodCard" class="card flood-card" hidden>
-          <div class="card-title flood-title">&#9873; FLOOD RISK — KODAGU MODEL</div>
+      <section id="floodBanner" class="flood-banner" hidden>
+        <div class="flood-banner-left">
+          <div class="flood-banner-title">&#9873; FLOOD RISK — KODAGU MODEL</div>
           <div class="flood-band" id="floodBand"></div>
           <div class="flood-sub" id="floodSub"></div>
-          <div class="flood-why" id="floodWhy"></div>
-          <div class="flood-note">This district-specific model only runs here, inside Kodagu — it's not applied to any other location.</div>
         </div>
+        <div class="flood-why" id="floodWhy"></div>
       </section>
+
+      <div class="layout">
+
+        <aside class="sidebar card glass">
+          <div class="location-name" id="locationName"></div>
+          <div class="hero-row">
+            <div class="current-temp" id="currentTemp"></div>
+            <div class="hero-meta">
+              <div class="condition" id="condition"></div>
+              <div class="hilo" id="hilo"></div>
+              <div class="feels-like" id="feelsLike"></div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+          <div class="section-title">NEXT HOURS</div>
+          <div class="hourly-strip" id="hourlyStrip"></div>
+
+          <div class="divider"></div>
+          <div class="section-title">NEXT DAYS</div>
+          <div class="daily-list" id="dailyList"></div>
+        </aside>
+
+        <section class="grid">
+
+          <div class="card glass span-2">
+            <div class="card-title">&#128506;&#65039; MAP &amp; PRECIPITATION RADAR</div>
+            <div id="map"></div>
+          </div>
+
+          <div class="card glass">
+            <div class="card-title">&#128167; PRECIPITATION</div>
+            <div class="stat-big" id="precipToday"></div>
+            <div class="stat-sub" id="precipNext"></div>
+          </div>
+
+          <div class="card glass">
+            <div class="card-title">&#127788;&#65039; WIND</div>
+            <div class="stat-big" id="windSpeed"></div>
+            <div class="stat-sub">Live current reading</div>
+          </div>
+
+          <div class="card glass">
+            <div class="card-title">&#127757; AIR QUALITY</div>
+            <div id="aqiBox">
+              <div class="stat-big" id="aqiValue"></div>
+              <div class="stat-sub" id="aqiCategory"></div>
+              <div class="bar-track"><div class="bar-fill" id="aqiBar"></div></div>
+            </div>
+          </div>
+
+          <div class="card glass">
+            <div class="card-title">&#9728;&#65039; UV INDEX</div>
+            <div class="stat-big" id="uvValue"></div>
+            <div class="stat-sub" id="uvCategory"></div>
+            <div class="bar-track"><div class="bar-fill" id="uvBar"></div></div>
+          </div>
+
+          <div class="card glass">
+            <div class="card-title">&#127765; SUN &amp; MOON</div>
+            <div class="sun-row">
+              <div><span class="label">Sunrise</span><span class="value" id="sunrise"></span></div>
+              <div><span class="label">Sunset</span><span class="value" id="sunset"></span></div>
+            </div>
+            <div class="divider thin"></div>
+            <div class="sun-row">
+              <div><span class="label">Moon Phase</span><span class="value" id="moonPhase"></span></div>
+              <div><span class="label">Illumination</span><span class="value" id="moonIllum"></span></div>
+            </div>
+          </div>
+
+          <div class="card glass">
+            <div class="card-title">&#128202; DETAILS</div>
+            <div class="details-grid">
+              <div><span class="label">Humidity</span><span class="value" id="humidity"></span></div>
+              <div><span class="label">Dew Point</span><span class="value" id="dewPoint"></span></div>
+              <div><span class="label">Pressure</span><span class="value" id="pressure"></span></div>
+              <div><span class="label">Visibility</span><span class="value" id="visibility"></span></div>
+            </div>
+          </div>
+
+        </section>
+      </div>
     </main>
 
     <footer class="footer">
-      <a href="/api" target="_blank" rel="noopener">API</a>
-      ·
-      <a href="/docs" target="_blank" rel="noopener">API docs</a>
+      <a href="/api" target="_blank" rel="noopener">API</a> · <a href="/docs" target="_blank" rel="noopener">API docs</a>
+      · Flood-risk model trained only on Kodagu district — shown only when a location is inside it.
     </footer>
   </div>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
