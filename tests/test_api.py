@@ -113,3 +113,46 @@ def test_weather_by_coords_fails_gracefully_without_network(client):
     # would return 200 with real weather data instead
     r = client.get("/weather-by-coords?lat=12.4244&lon=75.7382")
     assert r.status_code in (200, 502)
+
+
+def test_geocode_search_returns_empty_list_without_network(client):
+    # never errors, even with no network - always a 200 with a (possibly
+    # empty) results list, since it's called on every keystroke
+    r = client.get("/geocode-search?q=Mysore")
+    assert r.status_code == 200
+    assert isinstance(r.json()["results"], list)
+
+
+def test_build_weather_response_includes_all_dashboard_fields():
+    # extra weather fields (UV, visibility, pressure, dew point,
+    # sunrise/sunset, moon phase) against a mocked Open-Meteo-shaped
+    # response, since this sandbox can't reach the live API
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "api"))
+    import main as api_module
+
+    fake_data = {
+        "current": {"time": "2026-10-27T09:34", "temperature_2m": 23.4, "relative_humidity_2m": 78,
+                     "precipitation": 0.0, "weather_code": 3, "wind_speed_10m": 10.2,
+                     "apparent_temperature": 24.1, "dew_point_2m": 15.0, "surface_pressure": 1014.0},
+        "hourly": {"time": [f"2026-10-27T{h:02d}:00" for h in range(24)],
+                   "temperature_2m": [23.0] * 24, "precipitation_probability": [0] * 24,
+                   "weather_code": [3] * 24, "visibility": [19000] * 24, "uv_index": [4] * 24},
+        "daily": {"time": ["2026-10-27", "2026-10-28"],
+                  "temperature_2m_max": [29, 29], "temperature_2m_min": [18, 17],
+                  "precipitation_sum": [0, 0], "weather_code": [3, 3], "wind_speed_10m_max": [13, 18],
+                  "uv_index_max": [4, 5], "sunrise": ["2026-10-27T06:12"], "sunset": ["2026-10-27T17:55"]},
+    }
+    loc = {"name": "Bengaluru", "admin1": "Karnataka", "country": "India", "lat": 12.9716, "lon": 77.5946}
+
+    resp = api_module._build_weather_response(loc, fake_data)
+    cur = resp["current"]
+    assert cur["feels_like_C"] == 24.1
+    assert cur["dew_point_C"] == 15.0
+    assert cur["pressure_hpa"] == 1014.0
+    assert cur["visibility_km"] == 19.0
+    assert cur["uv_index"] == 4
+    assert resp["sun"]["sunrise"] == "2026-10-27T06:12"
+    assert resp["moon"]["name"]
+    assert 0 <= resp["moon"]["illumination_pct"] <= 100
+    assert resp["flood_risk_available"] is False
+    assert "flood_risk" not in resp

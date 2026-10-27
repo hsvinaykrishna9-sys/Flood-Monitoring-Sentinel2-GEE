@@ -116,7 +116,8 @@ def root():
         "endpoints": [
             "/health", "/predict/today", "/predict/historical/{date}",
             "/predict/taluk/today", "/predict/taluk/historical/{date}",
-            "/weather/{location}", "/weather-by-coords?lat=&lon=", "/models/comparison",
+            "/weather/{location}", "/weather-by-coords?lat=&lon=",
+            "/geocode-search?q=", "/models/comparison",
         ],
         "dashboard": "/",
     }
@@ -228,20 +229,28 @@ def predict_taluk_historical(date: str):
 
 
 def _build_weather_response(loc, data):
-    from weather_app import is_in_kodagu, wmo_text
+    from weather_app import is_in_kodagu, wmo_text, moon_phase, fetch_air_quality
 
     times = data["hourly"]["time"]
     current_time = data["current"].get("time", "")
     now_idx = next((i for i, t in enumerate(times) if t >= current_time), 0)
+    cur = data["current"]
+    daily = data["daily"]
 
     response = {
         "location": {"name": loc["name"], "admin1": loc["admin1"], "country": loc["country"],
                       "lat": loc["lat"], "lon": loc["lon"]},
         "current": {
-            "temperature_C": data["current"]["temperature_2m"],
-            "condition": wmo_text(data["current"]["weather_code"]),
-            "humidity_pct": data["current"]["relative_humidity_2m"],
-            "wind_speed_kmh": data["current"]["wind_speed_10m"],
+            "temperature_C": cur["temperature_2m"],
+            "feels_like_C": cur.get("apparent_temperature"),
+            "condition": wmo_text(cur["weather_code"]),
+            "humidity_pct": cur["relative_humidity_2m"],
+            "dew_point_C": cur.get("dew_point_2m"),
+            "wind_speed_kmh": cur["wind_speed_10m"],
+            "pressure_hpa": cur.get("surface_pressure"),
+            "visibility_km": (data["hourly"]["visibility"][now_idx] / 1000
+                               if "visibility" in data.get("hourly", {}) else None),
+            "uv_index": daily.get("uv_index_max", [None])[0],
         },
         "hourly_outlook": [
             {"time": times[i], "temp_C": data["hourly"]["temperature_2m"][i],
@@ -250,20 +259,37 @@ def _build_weather_response(loc, data):
             for i in range(now_idx, min(now_idx + 8, len(times)))
         ],
         "daily_outlook": [
-            {"date": data["daily"]["time"][i],
-             "temp_min_C": data["daily"]["temperature_2m_min"][i],
-             "temp_max_C": data["daily"]["temperature_2m_max"][i],
-             "rain_mm": data["daily"]["precipitation_sum"][i],
-             "condition": wmo_text(data["daily"]["weather_code"][i])}
-            for i in range(len(data["daily"]["time"]))
+            {"date": daily["time"][i],
+             "temp_min_C": daily["temperature_2m_min"][i],
+             "temp_max_C": daily["temperature_2m_max"][i],
+             "rain_mm": daily["precipitation_sum"][i],
+             "condition": wmo_text(daily["weather_code"][i])}
+            for i in range(len(daily["time"]))
         ],
+        "sun": {"sunrise": daily.get("sunrise", [None])[0], "sunset": daily.get("sunset", [None])[0]},
+        "moon": moon_phase(),
         "flood_risk_available": is_in_kodagu(loc["lat"], loc["lon"]),
     }
+
+    air = fetch_air_quality(loc["lat"], loc["lon"])
+    if air is not None:
+        response["air_quality"] = air
 
     if response["flood_risk_available"]:
         response["flood_risk"] = predict_today()
 
     return response
+
+
+@app.get("/geocode-search")
+def geocode_search_endpoint(q: str):
+    """Search-as-you-type autocomplete for the dashboard's search box -
+    returns up to 8 matches (name + state/admin1 + country), never an
+    error for 'no results' (just an empty list), since this is meant to
+    be called on every keystroke."""
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "models"))
+    from weather_app import geocode_search
+    return {"results": geocode_search(q)}
 
 
 @app.get("/weather/{location}")
@@ -283,11 +309,16 @@ def weather(location: str):
 
 
 @app.get("/weather-by-coords")
-def weather_by_coords(lat: float, lon: float):
-    """For the dashboard's browser-GPS 'current location' mode - real
-    coordinates from navigator.geolocation, more accurate than IP-based
-    guessing. No name lookup (reverse geocoding), so the location is
-    just labeled 'Current Location'."""
+def weather_by_coords(lat: float, lon: float, name: str = "Current Location",
+                       admin1: str = "", country: str = ""):
+    """Coordinates-based weather lookup. Used two ways by the dashboard:
+    1. Browser GPS 'current location' mode - real coordinates from
+       navigator.geolocation, name left as the default 'Current Location'
+       (no reverse-geocoding lookup).
+    2. An autocomplete suggestion was clicked - the dashboard already has
+       the name/admin1/country/lat/lon from /geocode-search, so it passes
+       them straight through here instead of a redundant second geocode
+       lookup by name."""
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "models"))
     from weather_app import fetch_weather
 
@@ -298,7 +329,7 @@ def weather_by_coords(lat: float, lon: float):
     if data is None:
         raise HTTPException(502, "Couldn't reach the weather service.")
 
-    loc = {"name": "Current Location", "admin1": "", "country": "", "lat": lat, "lon": lon}
+    loc = {"name": name, "admin1": admin1, "country": country, "lat": lat, "lon": lon}
     return _build_weather_response(loc, data)
 
 

@@ -18,6 +18,7 @@ Usage:
     python src/models/weather_app.py "Bengaluru"   # search - weather only
 """
 
+import datetime
 import math
 import os
 import sys
@@ -89,6 +90,29 @@ def get_current_location():
         return None
 
 
+def geocode_search(query, count=8):
+    """Search-as-you-type: return UP TO `count` matches (name + state/admin1
+    + country) for an autocomplete dropdown. Returns [] on failure or no
+    matches - never None, so the caller can always safely iterate it."""
+    if not query or len(query.strip()) < 2:
+        return []
+    try:
+        resp = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": query.strip(), "count": count},
+            timeout=8,
+        )
+        resp.raise_for_status()
+        results = resp.json().get("results") or []
+        return [
+            {"name": r["name"], "admin1": r.get("admin1", ""), "country": r.get("country", ""),
+             "lat": r["latitude"], "lon": r["longitude"]}
+            for r in results
+        ]
+    except Exception:
+        return []
+
+
 def geocode(query):
     """Search any place name worldwide. Returns None on failure."""
     try:
@@ -113,18 +137,78 @@ def geocode(query):
         return None
 
 
+def fetch_air_quality(lat, lon):
+    """Real AQI (US scale) from Open-Meteo's separate, free Air Quality
+    API - works for any location worldwide, India included. Returns
+    None on failure."""
+    try:
+        resp = requests.get(
+            "https://air-quality-api.open-meteo.com/v1/air-quality",
+            params={"latitude": lat, "longitude": lon, "current": "us_aqi,pm2_5,pm10", "timezone": "auto"},
+            timeout=8,
+        )
+        resp.raise_for_status()
+        cur = resp.json().get("current", {})
+        aqi = cur.get("us_aqi")
+        if aqi is None:
+            return None
+        return {"us_aqi": aqi, "pm2_5": cur.get("pm2_5"), "pm10": cur.get("pm10"),
+                "category": aqi_category(aqi)}
+    except Exception:
+        return None
+
+
+def aqi_category(aqi):
+    if aqi <= 50:
+        return "Good"
+    elif aqi <= 100:
+        return "Moderate"
+    elif aqi <= 150:
+        return "Unhealthy for Sensitive Groups"
+    elif aqi <= 200:
+        return "Unhealthy"
+    elif aqi <= 300:
+        return "Very Unhealthy"
+    return "Hazardous"
+
+
+def moon_phase(date=None):
+    """Standard synodic-month calculation - no external API, cannot fail
+    or go offline. Returns {name, illumination_pct}."""
+    date = date or datetime.datetime.utcnow()
+    synodic_month = 29.530588853
+    reference_new_moon = datetime.datetime(2000, 1, 6, 18, 14)
+    days_since = (date - reference_new_moon).total_seconds() / 86400
+    phase_fraction = (days_since % synodic_month) / synodic_month
+
+    names = [
+        (0.03, "New Moon"), (0.22, "Waxing Crescent"), (0.28, "First Quarter"),
+        (0.47, "Waxing Gibbous"), (0.53, "Full Moon"), (0.72, "Waning Gibbous"),
+        (0.78, "Last Quarter"), (0.97, "Waning Crescent"), (1.01, "New Moon"),
+    ]
+    name = next(n for threshold, n in names if phase_fraction < threshold)
+    illumination = round((1 - math.cos(2 * math.pi * phase_fraction)) / 2 * 100, 1)
+    return {"name": name, "illumination_pct": illumination}
+
+
 def fetch_weather(lat, lon):
-    """Current conditions + 6-hour strip + 6-day outlook, for ANY
-    location worldwide. Returns None on failure."""
+    """Current conditions + hourly strip + daily outlook, for ANY
+    location worldwide. Returns None on failure. Requests more fields
+    than the CLI tool prints (UV, visibility, pressure, dew point,
+    sunrise/sunset) so the web dashboard can show them too - adding
+    fields to this one shared call is safe for the CLI, which only
+    ever reads the specific keys it already reads and ignores the rest."""
     try:
         resp = requests.get(
             "https://api.open-meteo.com/v1/forecast",
             params={
                 "latitude": lat,
                 "longitude": lon,
-                "current": "temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m",
-                "hourly": "temperature_2m,precipitation_probability,weather_code",
-                "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max",
+                "current": "temperature_2m,relative_humidity_2m,precipitation,weather_code,"
+                            "wind_speed_10m,apparent_temperature,dew_point_2m,surface_pressure",
+                "hourly": "temperature_2m,precipitation_probability,weather_code,visibility,uv_index",
+                "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,"
+                         "wind_speed_10m_max,uv_index_max,sunrise,sunset",
                 "timezone": "auto",
                 "forecast_days": 7,
             },
