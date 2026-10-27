@@ -113,8 +113,7 @@ function initMap(lat, lon, label) {
         L.tileLayer(tileUrl, { opacity: 0.6, maxZoom: 12 }).addTo(leafletMap);
         const asOf = new Date(latest.time * 1000);
         setRadarStatus(
-          `radar live, as of ${asOf.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} ` +
-            `(clear = no rain nearby, not broken)`,
+          `radar live, as of ${asOf.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
           "live"
         );
       })
