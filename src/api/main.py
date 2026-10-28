@@ -168,7 +168,7 @@ def root():
         "name": "Kodagu Flood Risk API",
         "docs": "/docs",
         "endpoints": [
-            "/health", "/predict/today", "/predict/outlook", "/predict/historical/{date}",
+            "/health", "/predict/today", "/predict/outlook", "/predict/climatology", "/predict/historical/{date}",
             "/predict/taluk/today", "/predict/taluk/historical/{date}",
             "/weather/{location}", "/weather-by-coords?lat=&lon=",
             "/geocode-search?q=", "/models/comparison",
@@ -212,6 +212,34 @@ def predict_outlook():
             for o in outlook
         ],
     }
+
+
+MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+@app.get("/predict/climatology")
+def climatology():
+    """Seasonal flood-risk pattern by calendar month - computed directly
+    from the real OBSERVED outcome (flood_risk) across all 76 years of
+    ERA5-Land data, not from model predictions. This answers "which
+    months are historically riskiest" honestly: no model (this one or
+    any weather service's) can skillfully predict actual day-specific
+    rainfall more than ~2 weeks out, so a genuine months-ahead answer
+    has to come from historical pattern, not a day-by-day forecast."""
+    df = MODELS["daily_df"]
+    months = pd.to_datetime(df["date"]).dt.month
+    years_span = int(pd.to_datetime(df["date"]).dt.year.max() - pd.to_datetime(df["date"]).dt.year.min() + 1)
+
+    rows = []
+    for m in range(1, 13):
+        sub = df[months == m]
+        rows.append({
+            "month": MONTH_NAMES[m - 1],
+            "flood_risk_rate_pct": round(float(sub["flood_risk"].mean() * 100), 1),
+            "avg_rainfall_mm": round(float(sub["rainfall_mm"].mean()), 1),
+            "n_days": int(len(sub)),
+        })
+    return {"years_of_data": years_span, "months": rows}
 
 
 @app.get("/predict/historical/{date}")

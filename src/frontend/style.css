@@ -345,15 +345,38 @@ body {
 
 /* Outlook chart */
 
-.flood-outlook-wrap { flex: 1 1 280px; min-width: 260px; }
-.outlook-chart { width: 100%; height: 110px; display: block; overflow: visible; }
-.outlook-legend {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 4px;
-  font-size: 10px;
+.flood-mini-hint {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--text-faint);
+  font-size: 10px;
+  margin-left: 6px;
 }
+
+.flood-outlook-wrap { flex: 1 1 280px; min-width: 260px; }
+.outlook-chart { width: 100%; height: 90px; display: block; overflow: visible; }
+.outlook-chart rect { cursor: pointer; }
+
+.outlook-detail {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  min-height: 18px;
+  color: var(--text-dim);
+}
+.outlook-detail .od-date { font-weight: 600; color: var(--text); }
+.outlook-detail .od-band { font-weight: 700; }
+.outlook-detail .od-band.LOW { color: var(--low); }
+.outlook-detail .od-band.MODERATE { color: var(--moderate); }
+.outlook-detail .od-band.HIGH { color: var(--high); }
+.outlook-detail .od-source { color: var(--text-faint); font-size: 11px; }
+
+/* Seasonal climatology chart */
+
+.flood-climatology-wrap { margin-top: 2px; }
+.climatology-chart { width: 100%; height: 120px; display: block; overflow: visible; margin-top: 10px; }
+.climatology-caption { font-size: 12px; color: var(--text-dim); margin-top: 8px; line-height: 1.6; }
 
 /* Historical date picker */
 
