@@ -169,7 +169,7 @@ def root():
         "docs": "/docs",
         "endpoints": [
             "/health", "/predict/today", "/predict/outlook", "/predict/climatology", "/predict/historical/{date}",
-            "/predict/taluk/today", "/predict/taluk/historical/{date}",
+            "/predict/taluk/today", "/predict/taluk/outlook", "/predict/taluk/historical/{date}",
             "/weather/{location}", "/weather-by-coords?lat=&lon=",
             "/geocode-search?q=", "/models/comparison",
         ],
@@ -199,8 +199,9 @@ def predict_today():
 
 @app.get("/predict/outlook")
 def predict_outlook():
-    """10-day bridged flood-risk outlook for the whole district, starting
-    today - backs the dashboard's outlook chart."""
+    """16-day bridged flood-risk outlook for the whole district, starting
+    today (16 days = Open-Meteo's real live-forecast horizon, the actual
+    limit of what's a genuine forecast rather than trend-projection)."""
     outlook, last_real, bridge_days, live_forecast = get_daily_outlook()
     return {
         "bridge_days": bridge_days,
@@ -272,6 +273,33 @@ def predict_historical(date: str):
         "note": "This date is inside the model's training data (recalling a fitted "
                 "pattern), not out-of-sample generalization.",
     }
+
+
+@app.get("/predict/taluk/outlook")
+def predict_taluk_outlook():
+    """16-day bridged outlook for all 3 taluks, re-shaped per day (each
+    day lists all 3 taluks' numbers together) so the dashboard can build
+    a per-day, per-taluk map for any day a user picks from the outlook -
+    not just today."""
+    per_taluk = {}
+    for taluk in TALUKS:
+        outlook, _, _, _, _ = get_taluk_outlook(taluk)
+        per_taluk[taluk] = outlook
+
+    n_days = len(per_taluk[TALUKS[0]])
+    days = []
+    for i in range(n_days):
+        date_str = str(per_taluk[TALUKS[0]][i]["date"].date())
+        days.append({
+            "date": date_str,
+            "taluks": [
+                {"taluk": t, "flood_risk_probability": round(float(per_taluk[t][i]["prob"]), 4),
+                 "risk_band": risk_band(per_taluk[t][i]["prob"]),
+                 "is_live_input": per_taluk[t][i]["is_live_input"]}
+                for t in TALUKS
+            ],
+        })
+    return {"days": days}
 
 
 @app.get("/predict/taluk/today")

@@ -40,7 +40,7 @@ from xgboost import XGBClassifier
 
 from feature_engineering_daily import FEATURE_COLUMNS, run as build_features
 
-N_OUTLOOK_DAYS = 10
+N_OUTLOOK_DAYS = 16  # Open-Meteo's live forecast horizon - the real limit of what's a genuine forecast, not trend-projection
 
 # ANSI colors (most terminals support this; harmless if not)
 GREEN = "\033[32m"

@@ -46,11 +46,26 @@ def test_predict_outlook(client):
     r = client.get("/predict/outlook")
     assert r.status_code == 200
     body = r.json()
-    assert len(body["days"]) == 10
+    assert len(body["days"]) == 16  # Open-Meteo's real live-forecast horizon
     assert body["days"][0]["date"] == datetime.date.today().isoformat()
     for day in body["days"]:
         assert day["risk_band"] in ("LOW", "MODERATE", "HIGH")
         assert 0 <= day["flood_risk_probability"] <= 1
+
+
+def test_predict_taluk_outlook(client):
+    r = client.get("/predict/taluk/outlook")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["days"]) == 16
+    assert body["days"][0]["date"] == datetime.date.today().isoformat()
+    for day in body["days"]:
+        taluks = {t["taluk"] for t in day["taluks"]}
+        assert taluks == {"Madikeri", "Virajpet", "Somwarpet"}
+        for t in day["taluks"]:
+            assert t["risk_band"] in ("LOW", "MODERATE", "HIGH")
+            assert 0 <= t["flood_risk_probability"] <= 1
+            assert isinstance(t["is_live_input"], bool)
 
 
 def test_predict_historical_known_flood_day(client):

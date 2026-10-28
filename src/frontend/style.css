@@ -354,23 +354,9 @@ body {
   margin-left: 6px;
 }
 
-.flood-outlook-wrap { flex: 1 1 280px; min-width: 260px; }
+.flood-outlook-wrap { flex: 1 1 100%; }
 .outlook-chart { width: 100%; height: 90px; display: block; overflow: visible; }
 .outlook-chart rect { cursor: pointer; }
-
-.outlook-detail {
-  margin-top: 10px;
-  font-size: 12px;
-  line-height: 1.6;
-  min-height: 18px;
-  color: var(--text-dim);
-}
-.outlook-detail .od-date { font-weight: 600; color: var(--text); }
-.outlook-detail .od-band { font-weight: 700; }
-.outlook-detail .od-band.LOW { color: var(--low); }
-.outlook-detail .od-band.MODERATE { color: var(--moderate); }
-.outlook-detail .od-band.HIGH { color: var(--high); }
-.outlook-detail .od-source { color: var(--text-faint); font-size: 11px; }
 
 /* Seasonal climatology chart */
 
@@ -378,11 +364,11 @@ body {
 .climatology-chart { width: 100%; height: 120px; display: block; overflow: visible; margin-top: 10px; }
 .climatology-caption { font-size: 12px; color: var(--text-dim); margin-top: 8px; line-height: 1.6; }
 
-/* Historical date picker */
+/* Future-date picker */
 
-.flood-history-wrap { margin-top: 2px; }
+.flood-future-wrap { margin-top: 2px; }
 
-.history-form { display: flex; gap: 10px; align-items: center; margin: 10px 0 14px; }
+.history-form { display: flex; gap: 10px; align-items: center; margin: 10px 0 0; }
 .history-form input[type="date"] {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
@@ -403,17 +389,46 @@ body {
 }
 .history-form button:hover { background: rgba(255, 255, 255, 0.18); }
 
-.history-result { font-size: 13px; line-height: 1.7; min-height: 20px; }
-.history-result .h-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.history-result .h-band { font-weight: 700; }
-.history-result .h-band.LOW { color: var(--low); }
-.history-result .h-band.MODERATE { color: var(--moderate); }
-.history-result .h-band.HIGH { color: var(--high); }
-.history-result .h-match { color: var(--text-dim); font-size: 12px; }
-.history-result .h-why { margin-top: 8px; color: var(--text-dim); font-size: 12px; }
-.history-result .h-why span.up { color: #ff9b9b; }
-.history-result .h-why span.down { color: #9bffc0; }
-.history-result .h-error { color: #ffb4ae; }
+/* Day-detail popup (clicking an outlook bar, or the future-date picker) */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 12, 22, 0.6);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 16px;
+}
+.modal-overlay[hidden] { display: none; }
+
+.modal-box {
+  position: relative;
+  width: min(640px, 100%);
+  background: #141f36;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  padding: 24px 26px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.modal-close:hover { color: var(--text); }
+
+.modal-body { margin-top: 16px; gap: 28px; }
+#dayModalMap { height: 160px; border-radius: 12px; overflow: hidden; }
 
 /* ---------- Footer ---------- */
 
