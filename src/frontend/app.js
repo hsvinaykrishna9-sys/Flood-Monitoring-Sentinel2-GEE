@@ -12,8 +12,19 @@ const locateBtn = document.getElementById("locateBtn");
 
 let leafletMap = null;
 let floodMap = null;
+let dayModalMap = null;
 let activeSuggestionIndex = -1;
 let currentSuggestions = [];
+let currentTaluk = null;
+
+// Approximate taluk headquarters coordinates (same Voronoi-split anchor
+// points used by the backend) - the API doesn't return lat/lon per taluk,
+// so they're reproduced here just for marker placement on the maps.
+const TALUK_COORDS = {
+  Madikeri: [12.4244, 75.7382],
+  Virajpet: [12.1936, 75.8064],
+  Somwarpet: [12.5985, 75.8517],
+};
 
 // Monotonic request guard: every load gets a ticket; only the response
 // matching the CURRENT (latest) ticket is ever allowed to touch the DOM.
@@ -111,6 +122,31 @@ function talukColor(band) {
   return "#ff5c5c";
 }
 
+// Draws the 3 taluk markers + legend onto an already-created Leaflet map -
+// shared by today's taluk mini-map and the day-detail popup's map, which
+// differ only in WHICH day's taluk numbers they're showing.
+function renderTalukMarkers(map, legendEl, taluks) {
+  legendEl.innerHTML = "";
+  taluks.forEach((t) => {
+    const coords = TALUK_COORDS[t.taluk];
+    if (!coords) return;
+    const color = talukColor(t.risk_band);
+    L.circleMarker(coords, {
+      radius: 16,
+      color: "#fff",
+      weight: 2,
+      fillColor: color,
+      fillOpacity: 0.85,
+    })
+      .addTo(map)
+      .bindPopup(`<b>${t.taluk}</b><br>${t.risk_band} (${Math.round(t.flood_risk_probability * 100)}%)`);
+
+    const legendItem = document.createElement("div");
+    legendItem.innerHTML = `<span class="dot" style="background:${color}"></span>${t.taluk}: ${t.risk_band} (${Math.round(t.flood_risk_probability * 100)}%)`;
+    legendEl.appendChild(legendItem);
+  });
+}
+
 async function initFloodTalukMap() {
   const mapEl = document.getElementById("floodMap");
   const legendEl = document.getElementById("talukLegend");
@@ -124,63 +160,38 @@ async function initFloodTalukMap() {
       .setView([12.46, 75.78], 9);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 11 }).addTo(floodMap);
 
-    // Approximate taluk headquarters coordinates (same ones used by the
-    // backend's Voronoi split) - the API doesn't return lat/lon per taluk,
-    // so they're reproduced here just for marker placement.
-    const taluCoords = {
-      Madikeri: [12.4244, 75.7382],
-      Virajpet: [12.1936, 75.8064],
-      Somwarpet: [12.5985, 75.8517],
-    };
-
-    legendEl.innerHTML = "";
-    data.taluks.forEach((t) => {
-      const coords = taluCoords[t.taluk];
-      if (!coords) return;
-      const color = talukColor(t.risk_band);
-      L.circleMarker(coords, {
-        radius: 16,
-        color: "#fff",
-        weight: 2,
-        fillColor: color,
-        fillOpacity: 0.85,
-      })
-        .addTo(floodMap)
-        .bindPopup(`<b>${t.taluk}</b><br>${t.risk_band} (${Math.round(t.flood_risk_probability * 100)}%)`);
-
-      const legendItem = document.createElement("div");
-      legendItem.innerHTML = `<span class="dot" style="background:${color}"></span>${t.taluk}: ${t.risk_band} (${Math.round(t.flood_risk_probability * 100)}%)`;
-      legendEl.appendChild(legendItem);
-    });
+    renderTalukMarkers(floodMap, legendEl, data.taluks);
   } catch (err) {
     mapEl.innerHTML = '<div style="padding:12px;color:rgba(255,255,255,0.5);font-size:12px;">Per-taluk map unavailable right now.</div>';
   }
 }
 
-// ---------- 10-day outlook chart (click a day to see its details) ----------
+// ---------- 16-day outlook chart (click a day to open its detail popup) ----------
 
-let outlookDaysData = [];
-let selectedOutlookIndex = 0;
+let talukOutlookDays = []; // [{date, taluks: [{taluk, flood_risk_probability, risk_band, is_live_input}, ...]}, ...]
+
+function talukDayEntry(day, taluk) {
+  return day.taluks.find((t) => t.taluk === taluk);
+}
 
 async function initOutlookChart() {
   const svg = document.getElementById("outlookChart");
-  const detail = document.getElementById("outlookDetail");
   try {
-    const resp = await fetch("/predict/outlook");
+    const resp = await fetch("/predict/taluk/outlook");
     if (!resp.ok) throw new Error("request failed");
     const data = await resp.json();
-    outlookDaysData = data.days;
-    selectedOutlookIndex = 0;
-    renderOutlookChart(svg, outlookDaysData);
-    showOutlookDay(0);
+    talukOutlookDays = data.days;
+    renderOutlookChart(svg);
   } catch (err) {
     svg.innerHTML = "";
-    detail.innerHTML = '<span style="color:var(--text-faint)">Outlook unavailable right now.</span>';
   }
 }
 
-function renderOutlookChart(svg, days) {
-  const W = 320, H = 90, padTop = 6, padBottom = 6;
+function renderOutlookChart(svg) {
+  if (!currentTaluk || !talukOutlookDays.length) return;
+  const days = talukOutlookDays.map((day) => talukDayEntry(day, currentTaluk));
+
+  const W = 512, H = 90, padTop = 6, padBottom = 6;
   const maxH = H - padTop - padBottom;
   const n = days.length;
   const slot = W / n;
@@ -195,39 +206,71 @@ function renderOutlookChart(svg, days) {
     const color = talukColor(d.risk_band);
     const opacity = d.is_live_input ? 1 : 0.55;
     const label = i === 0 ? "Today" : `+${i}d`;
-    parts += `<rect data-index="${i}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${color}" opacity="${opacity}"><title>${label} (${d.date}): ${Math.round(d.flood_risk_probability * 100)}% ${d.risk_band}${d.is_live_input ? "" : " (trend-projected)"} - click for details</title></rect>`;
+    parts += `<rect data-index="${i}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${color}" opacity="${opacity}" stroke="${i === 0 ? "#fff" : "none"}" stroke-width="2"><title>${label} (${d.date}): ${Math.round(d.flood_risk_probability * 100)}% ${d.risk_band}${d.is_live_input ? "" : " (trend-projected)"} - click for details</title></rect>`;
   });
   svg.innerHTML = parts;
 
   svg.querySelectorAll("rect[data-index]").forEach((rect) => {
-    rect.addEventListener("click", () => showOutlookDay(Number(rect.dataset.index)));
+    rect.addEventListener("click", () => openDayModal(Number(rect.dataset.index)));
   });
 }
 
-function showOutlookDay(index) {
-  const d = outlookDaysData[index];
+// ---------- Day-detail popup ----------
+
+const dayModalOverlay = document.getElementById("dayModalOverlay");
+
+function openDayModal(index) {
+  const day = talukOutlookDays[index];
+  if (!day || !currentTaluk) return;
+  const d = talukDayEntry(day, currentTaluk);
   if (!d) return;
-  selectedOutlookIndex = index;
 
-  const svg = document.getElementById("outlookChart");
-  svg.querySelectorAll("rect[data-index]").forEach((rect) => {
-    rect.setAttribute("stroke", Number(rect.dataset.index) === index ? "#fff" : "none");
-    rect.setAttribute("stroke-width", "2");
-  });
+  const pct = Math.round(d.flood_risk_probability * 100);
+  const gauge = document.getElementById("dayModalGauge");
+  gauge.style.setProperty("--gauge-pct", pct);
+  gauge.style.setProperty("--gauge-color", talukColor(d.risk_band));
+  document.getElementById("dayModalPct").textContent = pct + "%";
+  const bandEl = document.getElementById("dayModalBand");
+  bandEl.textContent = d.risk_band;
+  bandEl.className = "gauge-band " + d.risk_band;
 
-  const dateLabel = new Date(d.date + "T00:00:00").toLocaleDateString(undefined, {
+  const dateLabel = new Date(day.date + "T00:00:00").toLocaleDateString(undefined, {
     weekday: "long", month: "short", day: "numeric",
   });
   const whenLabel = index === 0 ? "Today" : `In ${index} day${index > 1 ? "s" : ""}`;
-  const pct = Math.round(d.flood_risk_probability * 100);
-  const sourceNote = d.is_live_input ? "based on a live weather forecast" : "trend-projected (beyond the live forecast window)";
+  const sourceNote = d.is_live_input ? "live forecast" : "trend-projected";
+  document.getElementById("dayModalDate").textContent = `${whenLabel} · ${dateLabel} · ${sourceNote}`;
+  document.getElementById("dayModalTalukTag").textContent = currentTaluk + " taluk";
 
-  document.getElementById("outlookDetail").innerHTML = `
-    <div><span class="od-date">${whenLabel} · ${dateLabel}</span></div>
-    <div><span class="od-band ${d.risk_band}">${d.risk_band} RISK</span> &nbsp; ${pct}% probability</div>
-    <div class="od-source">${sourceNote}</div>
-  `;
+  const mapEl = document.getElementById("dayModalMap");
+  const legendEl = document.getElementById("dayModalLegend");
+  mapEl.innerHTML = "";
+  try {
+    if (dayModalMap) { dayModalMap.remove(); dayModalMap = null; }
+    dayModalMap = L.map(mapEl, { zoomControl: false, dragging: true, scrollWheelZoom: false })
+      .setView([12.46, 75.78], 9);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 11 }).addTo(dayModalMap);
+    renderTalukMarkers(dayModalMap, legendEl, day.taluks);
+  } catch (err) {
+    mapEl.innerHTML = '<div style="padding:12px;color:rgba(255,255,255,0.5);font-size:12px;">Map unavailable right now.</div>';
+  }
+
+  dayModalOverlay.hidden = false;
+  // Leaflet needs a resize nudge once its container is actually visible.
+  setTimeout(() => dayModalMap && dayModalMap.invalidateSize(), 50);
 }
+
+function closeDayModal() {
+  dayModalOverlay.hidden = true;
+}
+
+document.getElementById("dayModalClose").addEventListener("click", closeDayModal);
+dayModalOverlay.addEventListener("click", (e) => {
+  if (e.target === dayModalOverlay) closeDayModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !dayModalOverlay.hidden) closeDayModal();
+});
 
 // ---------- Seasonal climatology chart (76 years of real data) ----------
 
@@ -275,42 +318,28 @@ function renderClimatologyChart(svg, months) {
   svg.innerHTML = parts;
 }
 
-// ---------- Historical date picker ----------
+// ---------- Future-date picker (next 16 days, opens the same day-detail popup) ----------
 
-const historyForm = document.getElementById("historyForm");
-const historyResult = document.getElementById("historyResult");
+const futureForm = document.getElementById("futureForm");
+const futureDateInput = document.getElementById("futureDate");
 
-document.getElementById("historyDate").max = new Date().toISOString().slice(0, 10);
+function setFutureDateBounds() {
+  const today = new Date();
+  const max = new Date(today);
+  max.setDate(max.getDate() + 15);
+  futureDateInput.min = today.toISOString().slice(0, 10);
+  futureDateInput.max = max.toISOString().slice(0, 10);
+  futureDateInput.value = today.toISOString().slice(0, 10);
+}
+setFutureDateBounds();
 
-historyForm.addEventListener("submit", async (e) => {
+futureForm.addEventListener("submit", (e) => {
   e.preventDefault();
-  const date = document.getElementById("historyDate").value;
-  if (!date) return;
-  historyResult.innerHTML = "Checking…";
-  try {
-    const resp = await fetch(`/predict/historical/${date}`);
-    const body = await resp.json();
-    if (!resp.ok) {
-      historyResult.innerHTML = `<div class="h-error">${body.detail || "No data for that date."}</div>`;
-      return;
-    }
-    const pct = Math.round(body.flood_risk_probability * 100);
-    const actualText = body.actual_outcome === "flood_risk_day" ? "flood-risk day" : "normal day";
-    const matchText = body.model_matched_actual ? "model matched the real outcome ✓" : "model missed the real outcome ✗";
-    const why = body.explanation
-      .map((f) => `<span class="${f.direction}">${f.direction === "up" ? "↑" : "↓"} ${f.feature}</span>`)
-      .join(" &nbsp; ");
-    historyResult.innerHTML = `
-      <div class="h-row">
-        <span class="h-band ${body.risk_band}">${body.risk_band} RISK</span>
-        <span>${pct}%</span>
-        <span class="h-match">Actual: ${actualText} — ${matchText}</span>
-      </div>
-      <div class="h-why">${why}</div>
-    `;
-  } catch (err) {
-    historyResult.innerHTML = '<div class="h-error">Couldn\'t check that date right now.</div>';
-  }
+  const date = futureDateInput.value;
+  if (!date || !talukOutlookDays.length) return;
+  const index = talukOutlookDays.findIndex((d) => d.date === date);
+  if (index === -1) return; // outside the loaded 16-day window
+  openDayModal(index);
 });
 
 // ---------- Render ----------
@@ -438,6 +467,7 @@ function render(data) {
     const sourceNote = fr.bridge_days > 0 ? (fr.is_live_input ? " · live forecast" : " · trend-based") : "";
     document.getElementById("floodSub").textContent = dateLabel + sourceNote;
     document.getElementById("floodTalukTag").textContent = fr.taluk ? fr.taluk + " taluk" : "";
+    currentTaluk = fr.taluk || null;
 
     initFloodTalukMap();
     initOutlookChart();

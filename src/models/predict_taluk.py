@@ -38,7 +38,7 @@ BOLD = "\033[1m"
 DIM = "\033[2m"
 RESET = "\033[0m"
 
-N_OUTLOOK_DAYS = 10
+N_OUTLOOK_DAYS = 16  # same horizon as predict_daily.py - Open-Meteo's real live-forecast limit
 
 # Approximate taluk headquarters coordinates (same Voronoi-split anchor
 # points used by the GEE terrain/weather extraction scripts) - used here

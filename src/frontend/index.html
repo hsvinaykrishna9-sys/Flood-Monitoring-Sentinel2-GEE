@@ -50,9 +50,8 @@
           </div>
 
           <div class="flood-outlook-wrap">
-            <div class="flood-mini-title">10-DAY RISK OUTLOOK <span class="flood-mini-hint">click a day</span></div>
-            <svg id="outlookChart" class="outlook-chart" viewBox="0 0 320 90" preserveAspectRatio="none"></svg>
-            <div id="outlookDetail" class="outlook-detail"></div>
+            <div class="flood-mini-title">16-DAY RISK OUTLOOK <span class="flood-mini-hint">click a day</span></div>
+            <svg id="outlookChart" class="outlook-chart" viewBox="0 0 512 90" preserveAspectRatio="none"></svg>
           </div>
         </div>
 
@@ -66,15 +65,39 @@
 
         <div class="divider"></div>
 
-        <div class="flood-history-wrap">
-          <div class="flood-mini-title">CHECK A PAST DATE (1950-2026)</div>
-          <form id="historyForm" class="history-form" autocomplete="off">
-            <input type="date" id="historyDate" min="1950-01-01" max="2026-10-27" value="2023-07-05" />
+        <div class="flood-future-wrap">
+          <div class="flood-mini-title">CHECK A FUTURE DATE (NEXT 16 DAYS)</div>
+          <form id="futureForm" class="history-form" autocomplete="off">
+            <input type="date" id="futureDate" />
             <button type="submit">Check</button>
           </form>
-          <div id="historyResult" class="history-result"></div>
         </div>
       </section>
+
+      <div id="dayModalOverlay" class="modal-overlay" hidden>
+        <div class="modal-box">
+          <button type="button" id="dayModalClose" class="modal-close" aria-label="Close">&times;</button>
+          <div class="flood-sub" id="dayModalDate"></div>
+
+          <div class="flood-banner-body modal-body">
+            <div class="gauge-wrap">
+              <div class="gauge" id="dayModalGauge">
+                <div class="gauge-inner">
+                  <div class="gauge-pct" id="dayModalPct"></div>
+                  <div class="gauge-band" id="dayModalBand"></div>
+                </div>
+              </div>
+              <div class="flood-taluk-tag" id="dayModalTalukTag"></div>
+            </div>
+
+            <div class="flood-taluk-map-wrap">
+              <div class="flood-mini-title">KODAGU, BY TALUK</div>
+              <div id="dayModalMap"></div>
+              <div class="taluk-legend" id="dayModalLegend"></div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div class="layout">
 

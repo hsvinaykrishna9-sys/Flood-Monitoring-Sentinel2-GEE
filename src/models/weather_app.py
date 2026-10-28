@@ -274,7 +274,7 @@ def print_flood_risk_section():
     print(f" Most recent real data: {latest['date'].date()}")
     print(f" Flood risk: {color}{BOLD}{band}{RESET} ({prob:.0%} probability)\n")
     print_explanation(explain_prediction(xgb, X_row))
-    print(f"\n {DIM}For the full 10-day outlook and regional (per-taluk) breakdown, run")
+    print(f"\n {DIM}For the full 16-day outlook and regional (per-taluk) breakdown, run")
     print(f" predict_daily.py or predict_taluk.py directly.{RESET}")
 
 
