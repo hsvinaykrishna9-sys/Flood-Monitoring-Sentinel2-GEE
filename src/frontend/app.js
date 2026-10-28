@@ -157,26 +157,30 @@ async function initFloodTalukMap() {
   }
 }
 
-// ---------- 10-day outlook chart ----------
+// ---------- 10-day outlook chart (click a day to see its details) ----------
+
+let outlookDaysData = [];
+let selectedOutlookIndex = 0;
 
 async function initOutlookChart() {
   const svg = document.getElementById("outlookChart");
-  const legend = document.getElementById("outlookLegend");
+  const detail = document.getElementById("outlookDetail");
   try {
     const resp = await fetch("/predict/outlook");
     if (!resp.ok) throw new Error("request failed");
     const data = await resp.json();
-    renderOutlookChart(svg, data.days);
-    const lastDate = new Date(data.days[data.days.length - 1].date + "T00:00:00");
-    legend.innerHTML = `<span>Today</span><span>${lastDate.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>`;
+    outlookDaysData = data.days;
+    selectedOutlookIndex = 0;
+    renderOutlookChart(svg, outlookDaysData);
+    showOutlookDay(0);
   } catch (err) {
     svg.innerHTML = "";
-    legend.innerHTML = '<span style="color:var(--text-faint)">Outlook unavailable right now.</span>';
+    detail.innerHTML = '<span style="color:var(--text-faint)">Outlook unavailable right now.</span>';
   }
 }
 
 function renderOutlookChart(svg, days) {
-  const W = 320, H = 110, padTop = 6, padBottom = 18;
+  const W = 320, H = 90, padTop = 6, padBottom = 6;
   const maxH = H - padTop - padBottom;
   const n = days.length;
   const slot = W / n;
@@ -191,8 +195,82 @@ function renderOutlookChart(svg, days) {
     const color = talukColor(d.risk_band);
     const opacity = d.is_live_input ? 1 : 0.55;
     const label = i === 0 ? "Today" : `+${i}d`;
-    parts += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${color}" opacity="${opacity}"><title>${label} (${d.date}): ${Math.round(d.flood_risk_probability * 100)}% ${d.risk_band}${d.is_live_input ? "" : " (trend-projected)"}</title></rect>`;
-    parts += `<text x="${(x + barW / 2).toFixed(1)}" y="${H - 4}" font-size="8" fill="var(--text-faint)" text-anchor="middle">${label}</text>`;
+    parts += `<rect data-index="${i}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${color}" opacity="${opacity}"><title>${label} (${d.date}): ${Math.round(d.flood_risk_probability * 100)}% ${d.risk_band}${d.is_live_input ? "" : " (trend-projected)"} - click for details</title></rect>`;
+  });
+  svg.innerHTML = parts;
+
+  svg.querySelectorAll("rect[data-index]").forEach((rect) => {
+    rect.addEventListener("click", () => showOutlookDay(Number(rect.dataset.index)));
+  });
+}
+
+function showOutlookDay(index) {
+  const d = outlookDaysData[index];
+  if (!d) return;
+  selectedOutlookIndex = index;
+
+  const svg = document.getElementById("outlookChart");
+  svg.querySelectorAll("rect[data-index]").forEach((rect) => {
+    rect.setAttribute("stroke", Number(rect.dataset.index) === index ? "#fff" : "none");
+    rect.setAttribute("stroke-width", "2");
+  });
+
+  const dateLabel = new Date(d.date + "T00:00:00").toLocaleDateString(undefined, {
+    weekday: "long", month: "short", day: "numeric",
+  });
+  const whenLabel = index === 0 ? "Today" : `In ${index} day${index > 1 ? "s" : ""}`;
+  const pct = Math.round(d.flood_risk_probability * 100);
+  const sourceNote = d.is_live_input ? "based on a live weather forecast" : "trend-projected (beyond the live forecast window)";
+
+  document.getElementById("outlookDetail").innerHTML = `
+    <div><span class="od-date">${whenLabel} · ${dateLabel}</span></div>
+    <div><span class="od-band ${d.risk_band}">${d.risk_band} RISK</span> &nbsp; ${pct}% probability</div>
+    <div class="od-source">${sourceNote}</div>
+  `;
+}
+
+// ---------- Seasonal climatology chart (76 years of real data) ----------
+
+async function initClimatologyChart() {
+  const svg = document.getElementById("climatologyChart");
+  const caption = document.getElementById("climatologyCaption");
+  try {
+    const resp = await fetch("/predict/climatology");
+    if (!resp.ok) throw new Error("request failed");
+    const data = await resp.json();
+    renderClimatologyChart(svg, data.months);
+
+    const sorted = [...data.months].sort((a, b) => b.flood_risk_rate_pct - a.flood_risk_rate_pct);
+    const riskiest = sorted.slice(0, 2).map((m) => m.month).join("-");
+    const safest = sorted[sorted.length - 1].month;
+    caption.textContent =
+      `Based on ${data.years_of_data} years of real observed data: ${riskiest} are historically Kodagu's ` +
+      `highest flood-risk months, ${safest} the lowest. This is a seasonal pattern, not a day-specific forecast.`;
+  } catch (err) {
+    svg.innerHTML = "";
+    caption.textContent = "Seasonal pattern unavailable right now.";
+  }
+}
+
+function renderClimatologyChart(svg, months) {
+  const W = 640, H = 120, padTop = 6, padBottom = 20;
+  const maxH = H - padTop - padBottom;
+  const n = months.length;
+  const slot = W / n;
+  const barW = slot * 0.6;
+  const baseline = padTop + maxH;
+  const maxRate = Math.max(...months.map((m) => m.flood_risk_rate_pct), 1);
+  const currentMonth = new Date().getMonth();
+
+  let parts = `<line x1="0" y1="${baseline}" x2="${W}" y2="${baseline}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
+  months.forEach((m, i) => {
+    const x = i * slot + (slot - barW) / 2;
+    const h = Math.max(2, (m.flood_risk_rate_pct / maxRate) * maxH);
+    const y = baseline - h;
+    const isCurrent = i === currentMonth;
+    const color = m.flood_risk_rate_pct >= maxRate * 0.66 ? "#ff5c5c" : m.flood_risk_rate_pct >= maxRate * 0.33 ? "#f7c948" : "#3ddc84";
+    parts += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${color}" opacity="${isCurrent ? 1 : 0.7}" stroke="${isCurrent ? "#fff" : "none"}" stroke-width="1.5"><title>${m.month}: ${m.flood_risk_rate_pct}% of days were flood-risk days (${m.n_days} days across all years)</title></rect>`;
+    parts += `<text x="${(x + barW / 2).toFixed(1)}" y="${H - 6}" font-size="10" fill="${isCurrent ? "var(--text)" : "var(--text-faint)"}" text-anchor="middle">${m.month}</text>`;
   });
   svg.innerHTML = parts;
 }
@@ -363,6 +441,7 @@ function render(data) {
 
     initFloodTalukMap();
     initOutlookChart();
+    initClimatologyChart();
   } else {
     floodBanner.hidden = true;
   }
