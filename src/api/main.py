@@ -478,9 +478,22 @@ def models_comparison():
     return JSONResponse(df.to_dict(orient="records"))
 
 
+class NoCacheStaticFiles(StaticFiles):
+    """Plain StaticFiles lets browsers cache index.html/app.js/style.css
+    indefinitely with no versioning, which has repeatedly caused updates to
+    silently not show up in a browser that's still running the old file. A
+    student project with no CDN in front of it has no reason to let that
+    happen - always re-fetch from this server instead."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
+
+
 # Serve the dashboard (src/frontend/) as static files, mounted LAST so it
 # never shadows the API routes declared above - only paths that don't match
 # an API route fall through to the static files here. html=True serves
 # index.html automatically at "/".
 _FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
-app.mount("/", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")
+app.mount("/", NoCacheStaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")
