@@ -229,20 +229,42 @@ function renderOutlookChart(svg) {
 
 const dayModalOverlay = document.getElementById("dayModalOverlay");
 
+function fillModalGauge(prob, band) {
+  const pct = Math.round(prob * 100);
+  const gauge = document.getElementById("dayModalGauge");
+  gauge.style.setProperty("--gauge-pct", pct);
+  gauge.style.setProperty("--gauge-color", talukColor(band));
+  document.getElementById("dayModalPct").textContent = pct + "%";
+  const bandEl = document.getElementById("dayModalBand");
+  bandEl.textContent = band;
+  bandEl.className = "gauge-band " + band;
+}
+
+function fillModalMap(talukList) {
+  const mapEl = document.getElementById("dayModalMap");
+  const legendEl = document.getElementById("dayModalLegend");
+  mapEl.innerHTML = "";
+  try {
+    if (dayModalMap) { dayModalMap.remove(); dayModalMap = null; }
+    dayModalMap = L.map(mapEl, { zoomControl: false, dragging: true, scrollWheelZoom: false })
+      .setView([12.46, 75.78], 9);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 11 }).addTo(dayModalMap);
+    renderTalukMarkers(dayModalMap, legendEl, talukList);
+  } catch (err) {
+    mapEl.innerHTML = '<div style="padding:12px;color:rgba(255,255,255,0.5);font-size:12px;">Map unavailable right now.</div>';
+  }
+  dayModalOverlay.hidden = false;
+  // Leaflet needs a resize nudge once its container is actually visible.
+  setTimeout(() => dayModalMap && dayModalMap.invalidateSize(), 50);
+}
+
 function openDayModal(index) {
   const day = talukOutlookDays[index];
   if (!day || !currentTaluk) return;
   const d = talukDayEntry(day, currentTaluk);
   if (!d) return;
 
-  const pct = Math.round(d.flood_risk_probability * 100);
-  const gauge = document.getElementById("dayModalGauge");
-  gauge.style.setProperty("--gauge-pct", pct);
-  gauge.style.setProperty("--gauge-color", talukColor(d.risk_band));
-  document.getElementById("dayModalPct").textContent = pct + "%";
-  const bandEl = document.getElementById("dayModalBand");
-  bandEl.textContent = d.risk_band;
-  bandEl.className = "gauge-band " + d.risk_band;
+  fillModalGauge(d.flood_risk_probability, d.risk_band);
 
   const dateLabel = new Date(day.date + "T00:00:00").toLocaleDateString(undefined, {
     weekday: "long", month: "short", day: "numeric",
@@ -252,22 +274,35 @@ function openDayModal(index) {
   document.getElementById("dayModalDate").textContent = `${whenLabel} · ${dateLabel} · ${sourceNote}`;
   document.getElementById("dayModalTalukTag").textContent = currentTaluk + " taluk";
 
-  const mapEl = document.getElementById("dayModalMap");
-  const legendEl = document.getElementById("dayModalLegend");
-  mapEl.innerHTML = "";
-  try {
-    if (dayModalMap) { dayModalMap.remove(); dayModalMap = null; }
-    dayModalMap = L.map(mapEl, { zoomControl: false, dragging: true, scrollWheelZoom: false })
-      .setView([12.46, 75.78], 9);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 11 }).addTo(dayModalMap);
-    renderTalukMarkers(dayModalMap, legendEl, day.taluks);
-  } catch (err) {
-    mapEl.innerHTML = '<div style="padding:12px;color:rgba(255,255,255,0.5);font-size:12px;">Map unavailable right now.</div>';
-  }
+  fillModalMap(day.taluks);
+}
 
-  dayModalOverlay.hidden = false;
-  // Leaflet needs a resize nudge once its container is actually visible.
-  setTimeout(() => dayModalMap && dayModalMap.invalidateSize(), 50);
+async function openHistoricalModal(dateStr) {
+  const errorEl = document.getElementById("historyError");
+  errorEl.textContent = "";
+  try {
+    const resp = await fetch(`/predict/taluk/historical/${dateStr}`);
+    const data = await resp.json();
+    if (!resp.ok) {
+      errorEl.textContent = data.detail || "No data for that date.";
+      return;
+    }
+    const entry = data.taluks.find((t) => t.taluk === currentTaluk) || data.taluks[0];
+    fillModalGauge(entry.flood_risk_probability, entry.risk_band);
+
+    const dateLabel = new Date(data.date + "T00:00:00").toLocaleDateString(undefined, {
+      weekday: "long", month: "short", day: "numeric", year: "numeric",
+    });
+    const actualText = entry.actual_outcome === "flood_risk_day" ? "flood-risk day" : "normal day";
+    const matchText = entry.model_matched_actual ? "model matched ✓" : "model missed ✗";
+    document.getElementById("dayModalDate").textContent =
+      `Historical · ${dateLabel} · Actual: ${actualText} — ${matchText}`;
+    document.getElementById("dayModalTalukTag").textContent = (currentTaluk || entry.taluk) + " taluk";
+
+    fillModalMap(data.taluks);
+  } catch (err) {
+    errorEl.textContent = "Couldn't check that date right now.";
+  }
 }
 
 function closeDayModal() {
@@ -328,6 +363,26 @@ function renderClimatologyChart(svg, months) {
   svg.innerHTML = parts;
 }
 
+// ---------- Past-date picker (1950-2026, opens the same day-detail popup) ----------
+
+const historyForm = document.getElementById("historyForm");
+const historyDateInput = document.getElementById("historyDate");
+
+function setHistoryDateBounds() {
+  const today = new Date().toISOString().slice(0, 10);
+  historyDateInput.min = "1950-01-01";
+  historyDateInput.max = today;
+  historyDateInput.value = "2023-07-05";
+}
+setHistoryDateBounds();
+
+historyForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const date = historyDateInput.value;
+  if (!date) return;
+  openHistoricalModal(date);
+});
+
 // ---------- Future-date picker (next 16 days, opens the same day-detail popup) ----------
 
 const futureForm = document.getElementById("futureForm");
@@ -346,9 +401,14 @@ setFutureDateBounds();
 futureForm.addEventListener("submit", (e) => {
   e.preventDefault();
   const date = futureDateInput.value;
+  const errorEl = document.getElementById("futureError");
+  errorEl.textContent = "";
   if (!date || !talukOutlookDays.length) return;
   const index = talukOutlookDays.findIndex((d) => d.date === date);
-  if (index === -1) return; // outside the loaded 16-day window
+  if (index === -1) {
+    errorEl.textContent = "Outside the loaded 16-day window.";
+    return;
+  }
   openDayModal(index);
 });
 

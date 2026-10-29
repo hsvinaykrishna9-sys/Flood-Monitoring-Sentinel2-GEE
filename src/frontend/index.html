@@ -65,12 +65,24 @@
 
         <div class="divider"></div>
 
-        <div class="flood-future-wrap">
-          <div class="flood-mini-title">CHECK A FUTURE DATE (NEXT 16 DAYS)</div>
-          <form id="futureForm" class="history-form" autocomplete="off">
-            <input type="date" id="futureDate" />
-            <button type="submit">Check</button>
-          </form>
+        <div class="flood-date-search-row">
+          <div class="flood-history-wrap">
+            <div class="flood-mini-title">CHECK A PAST DATE (1950&ndash;2026)</div>
+            <form id="historyForm" class="history-form" autocomplete="off">
+              <input type="date" id="historyDate" />
+              <button type="submit">Check</button>
+            </form>
+            <div id="historyError" class="date-search-error"></div>
+          </div>
+
+          <div class="flood-future-wrap">
+            <div class="flood-mini-title">CHECK A FUTURE DATE (NEXT 16 DAYS)</div>
+            <form id="futureForm" class="history-form" autocomplete="off">
+              <input type="date" id="futureDate" />
+              <button type="submit">Check</button>
+            </form>
+            <div id="futureError" class="date-search-error"></div>
+          </div>
         </div>
       </section>
 
