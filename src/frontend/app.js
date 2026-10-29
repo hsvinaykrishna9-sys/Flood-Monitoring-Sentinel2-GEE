@@ -189,15 +189,16 @@ async function initOutlookChart() {
 
 function renderOutlookChart(svg) {
   if (!currentTaluk || !talukOutlookDays.length) return;
-  const days = talukOutlookDays.map((day) => talukDayEntry(day, currentTaluk));
+  const days = talukOutlookDays.map((day) => ({ ...talukDayEntry(day, currentTaluk), date: day.date }));
 
-  const W = 512, H = 90, padTop = 6, padBottom = 6;
+  const W = 512, H = 108, padTop = 6, padBottom = 22;
   const maxH = H - padTop - padBottom;
   const n = days.length;
   const slot = W / n;
   const barW = slot * 0.62;
   const baseline = padTop + maxH;
 
+  let prevMonth = null;
   let parts = `<line x1="0" y1="${baseline}" x2="${W}" y2="${baseline}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
   days.forEach((d, i) => {
     const x = i * slot + (slot - barW) / 2;
@@ -207,6 +208,15 @@ function renderOutlookChart(svg) {
     const opacity = d.is_live_input ? 1 : 0.55;
     const label = i === 0 ? "Today" : `+${i}d`;
     parts += `<rect data-index="${i}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${color}" opacity="${opacity}" stroke="${i === 0 ? "#fff" : "none"}" stroke-width="2"><title>${label} (${d.date}): ${Math.round(d.flood_risk_probability * 100)}% ${d.risk_band}${d.is_live_input ? "" : " (trend-projected)"} - click for details</title></rect>`;
+
+    const dateObj = new Date(d.date + "T00:00:00");
+    const month = dateObj.getMonth();
+    const dateLabel = month !== prevMonth
+      ? dateObj.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+      : String(dateObj.getDate());
+    prevMonth = month;
+    const textColor = i === 0 ? "var(--text)" : "var(--text-faint)";
+    parts += `<text x="${(x + barW / 2).toFixed(1)}" y="${H - 6}" font-size="9" fill="${textColor}" text-anchor="middle">${dateLabel}</text>`;
   });
   svg.innerHTML = parts;
 
