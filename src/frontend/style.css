@@ -394,7 +394,30 @@ body {
 
 /* ---------- "Why this risk level?" panel ---------- */
 
-.why { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--glass-border); }
+.why-wrap { margin-top: 20px; }
+.why-wrap[hidden] { display: none; }
+
+.why-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(90, 209, 201, 0.55);
+  background: rgba(90, 209, 201, 0.12);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
+}
+.why-btn:hover { background: rgba(90, 209, 201, 0.24); border-color: var(--accent); }
+.why-btn:active { transform: scale(0.98); }
+.why-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.why-btn[aria-expanded="true"] { background: rgba(255, 255, 255, 0.08); border-color: var(--glass-border); color: var(--text-dim); }
+
+.why { margin-top: 16px; padding-top: 18px; border-top: 1px solid var(--glass-border); }
 .why[hidden] { display: none; }
 
 .why-headline {
@@ -453,7 +476,8 @@ body {
 .why-method summary { cursor: pointer; color: var(--accent); }
 .why-method p { margin: 8px 0 0; line-height: 1.5; max-width: 70ch; }
 
-.why-modal { margin-top: 18px; padding-top: 16px; }
+.why-wrap-modal { margin-top: 18px; }
+.why-modal { padding-top: 16px; }
 .why-modal .why-headline { font-size: 16px; }
 .why-modal .why-grid { grid-template-columns: 1fr; }
 

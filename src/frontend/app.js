@@ -314,8 +314,35 @@ async function loadWhy(panel, taluk, date) {
     renderWhy(panel, data.why);
   } catch (err) {
     if (ticket !== panel._whyTicket) return;
-    panel.hidden = true;
+    panel.innerHTML = "";
+    panel.appendChild(whyEl("div", "why-loading", "Couldn't load the reasons right now. Please try again."));
   }
+}
+
+// The reasons stay hidden until the person asks for them. `open` is only called when
+// the button is pressed, so nothing is fetched or drawn for people who never click.
+const WHY_LABEL_SHOW = "\u{1F4A1} Why this risk level?";
+const WHY_LABEL_HIDE = "Hide the reasons";
+
+function setupWhyToggle(wrap, btn, panel, open) {
+  panel._whyTicket = (panel._whyTicket || 0) + 1;     // cancels any answer still on its way
+  panel.hidden = true;
+  panel.innerHTML = "";
+  btn.textContent = WHY_LABEL_SHOW;
+  btn.setAttribute("aria-expanded", "false");
+  btn.onclick = () => {
+    if (!panel.hidden) {
+      panel._whyTicket += 1;
+      panel.hidden = true;
+      btn.textContent = WHY_LABEL_SHOW;
+      btn.setAttribute("aria-expanded", "false");
+    } else {
+      btn.textContent = WHY_LABEL_HIDE;
+      btn.setAttribute("aria-expanded", "true");
+      open();
+    }
+  };
+  wrap.hidden = !open;
 }
 
 // ---------- Day-detail popup ----------
@@ -368,7 +395,9 @@ function openDayModal(index) {
   document.getElementById("dayModalTalukTag").textContent = currentTaluk + " taluk";
 
   fillModalMap(day.taluks);
-  loadWhy(document.getElementById("dayModalWhy"), currentTaluk, day.date);
+  const modalWhy = document.getElementById("dayModalWhy");
+  setupWhyToggle(document.getElementById("dayModalWhyWrap"), document.getElementById("dayModalWhyBtn"), modalWhy,
+    () => loadWhy(modalWhy, currentTaluk, day.date));
 }
 
 async function openHistoricalModal(dateStr) {
@@ -395,8 +424,8 @@ async function openHistoricalModal(dateStr) {
 
     fillModalMap(data.taluks);
     const modalWhy = document.getElementById("dayModalWhy");
-    modalWhy._whyTicket = (modalWhy._whyTicket || 0) + 1;
-    if (entry.why) renderWhy(modalWhy, entry.why); else modalWhy.hidden = true;
+    setupWhyToggle(document.getElementById("dayModalWhyWrap"), document.getElementById("dayModalWhyBtn"), modalWhy,
+      entry.why ? () => renderWhy(modalWhy, entry.why) : null);
   } catch (err) {
     errorEl.textContent = "Couldn't check that date right now.";
   }
@@ -639,9 +668,12 @@ function render(data) {
     initFloodTalukMap();
     initOutlookChart();
     initClimatologyChart();
-    if (currentTaluk) loadWhy(document.getElementById("whyPanel"), currentTaluk, fr.date);
+    const whyPanel = document.getElementById("whyPanel");
+    setupWhyToggle(document.getElementById("whyWrap"), document.getElementById("whyBtn"), whyPanel,
+      currentTaluk ? () => loadWhy(whyPanel, currentTaluk, fr.date) : null);
   } else {
     floodBanner.hidden = true;
+    document.getElementById("whyWrap").hidden = true;
   }
 
   // Map
