@@ -37,6 +37,7 @@ from feature_engineering_daily import FEATURE_COLUMNS as DAILY_FEATURES, run as 
 from feature_engineering_taluk import FEATURE_COLUMNS as TALUK_FEATURES, TALUKS, run as build_taluk_features
 from predict_daily import compute_outlook as compute_daily_outlook
 from predict_taluk import TALUK_COORDS, compute_outlook_taluk
+from explain_plain import build_context, explain_rows
 
 MODELS = {}
 OUTLOOK_CACHE_TTL = 600  # seconds - avoids hitting Open-Meteo on every page load
@@ -111,6 +112,29 @@ def shap_explanation(xgb, X_row, feature_names, top_n=5):
     ]
 
 
+def explain_context(taluk=None):
+    """Typical monthly values used to word an explanation ("higher than usual
+    for July"). Built once per scope and cached."""
+    key = f"ctx_{taluk or 'district'}"
+    if key not in MODELS:
+        daily_df = MODELS["daily_df"]
+        if taluk:
+            tdf = MODELS["taluk_df"]
+            weather = tdf[tdf["taluk"] == taluk]
+        else:
+            weather = daily_df
+        MODELS[key] = build_context(weather, daily_df)
+    return MODELS[key]
+
+
+def plain_why(model, feature_names, rows, dates, probs, taluk=None, estimated=None):
+    """Plain-language 'why this risk level' for one or more predictions."""
+    import numpy as np
+    bands = [risk_band(p) for p in probs]
+    return explain_rows(model, np.vstack(rows), feature_names, dates, probs, bands,
+                        explain_context(taluk), estimated)
+
+
 def nearest_taluk(lat, lon):
     """Which of the 3 taluks' HQ is closest to a given point - used so a
     search for a specific place inside Kodagu (e.g. 'Virajpet') shows that
@@ -170,6 +194,7 @@ def root():
         "endpoints": [
             "/health", "/predict/today", "/predict/outlook", "/predict/climatology", "/predict/historical/{date}",
             "/predict/taluk/today", "/predict/taluk/outlook", "/predict/taluk/historical/{date}",
+            "/explain/taluk/{taluk}/{date}",
             "/weather/{location}", "/weather-by-coords?lat=&lon=",
             "/geocode-search?q=", "/models/comparison",
         ],
@@ -186,6 +211,8 @@ def health():
 def predict_today():
     outlook, last_real, bridge_days, live_forecast = get_daily_outlook()
     today = outlook[0]
+    why = plain_why(MODELS["daily_xgb"], DAILY_FEATURES, [today["X_row"]], [today["date"]],
+                    [float(today["prob"])], estimated=[not today["is_live_input"]])[0]
     return {
         "date": str(today["date"].date()),
         "flood_risk_probability": round(float(today["prob"]), 4),
@@ -194,6 +221,7 @@ def predict_today():
         "bridge_days": bridge_days,
         "live_forecast_used": live_forecast,
         "most_recent_real_data_date": str(last_real["date"].date()),
+        "why": why,
     }
 
 
@@ -270,6 +298,7 @@ def predict_historical(date: str):
         "actual_outcome": "flood_risk_day" if actual else "normal_day",
         "model_matched_actual": (prob > 0.5) == bool(actual),
         "explanation": shap_explanation(xgb, X_row, DAILY_FEATURES),
+        "why": plain_why(xgb, DAILY_FEATURES, [X_row], [target_date], [prob])[0],
         "note": "This date is inside the model's training data (recalling a fitted "
                 "pattern), not out-of-sample generalization.",
     }
@@ -322,6 +351,25 @@ def predict_taluk_today():
     return {"taluks": results}
 
 
+@app.get("/explain/taluk/{taluk}/{date}")
+def explain_taluk_day(taluk: str, date: str):
+    """Plain-language reasons behind one taluk's predicted risk on one day of
+    the current 16-day outlook (today included). Used by the dashboard's
+    "Why this risk level?" panel."""
+    if taluk not in TALUKS:
+        raise HTTPException(404, f"Unknown taluk '{taluk}'. Choose one of: {', '.join(TALUKS)}.")
+    outlook, _, _, _, _ = get_taluk_outlook(taluk)
+    match = [o for o in outlook if str(o["date"].date()) == date]
+    if not match:
+        raise HTTPException(404, f"{date} is outside the loaded outlook "
+                                 f"({outlook[0]['date'].date()} to {outlook[-1]['date'].date()}).")
+    day = match[0]
+    why = plain_why(MODELS["taluk_xgb"], TALUK_FEATURES, [day["X_row"]], [day["date"]],
+                    [float(day["prob"])], taluk=taluk, estimated=[not day["is_live_input"]])[0]
+    return {"taluk": taluk, "date": date, "flood_risk_probability": round(float(day["prob"]), 4),
+            "risk_band": risk_band(day["prob"]), "is_live_input": day["is_live_input"], "why": why}
+
+
 @app.get("/predict/taluk/historical/{date}")
 def predict_taluk_historical(date: str):
     xgb, df = MODELS["taluk_xgb"], MODELS["taluk_df"]
@@ -349,6 +397,7 @@ def predict_taluk_historical(date: str):
             "risk_band": risk_band(prob),
             "actual_outcome": "flood_risk_day" if actual else "normal_day",
             "model_matched_actual": (prob > 0.5) == bool(actual),
+            "why": plain_why(xgb, TALUK_FEATURES, [X_row], [target_date], [prob], taluk=row["taluk"])[0],
         })
     return {"date": str(target_date.date()), "taluks": results}
 

@@ -191,3 +191,36 @@ def test_build_weather_response_includes_all_dashboard_fields():
     assert 0 <= resp["moon"]["illumination_pct"] <= 100
     assert resp["flood_risk_available"] is False
     assert "flood_risk" not in resp
+
+
+def test_taluk_historical_includes_plain_language_reasons(client):
+    body = client.get("/predict/taluk/historical/2018-08-15").json()
+    for t in body["taluks"]:
+        why = t["why"]
+        assert why["headline"].startswith("High risk")
+        assert why["factors"] and why["method_note"]
+        assert {f["key"] for f in why["factors"]} == {"runoff", "rain", "soil", "season", "weather", "terrain"}
+        assert abs(sum(f["strength_pct"] for f in why["factors"]) - 100) <= 4
+
+
+def test_district_endpoints_include_plain_language_reasons(client):
+    assert client.get("/predict/today").json()["why"]["headline"]
+    hist = client.get("/predict/historical/2018-08-15").json()
+    assert hist["why"]["headline"] and hist["explanation"]  # the original technical field is still there
+    assert {f["key"] for f in hist["why"]["factors"]} == {"runoff", "rain", "soil", "season", "weather"}  # no terrain at district level
+
+
+def test_explain_taluk_day_endpoint(client):
+    days = client.get("/predict/taluk/outlook").json()["days"]
+    first = days[0]["date"]
+    body = client.get(f"/explain/taluk/Madikeri/{first}").json()
+    assert body["taluk"] == "Madikeri" and body["date"] == first
+    assert body["why"]["headline"] and body["why"]["factors"]
+    # a day further out carries the caution that its inputs are estimated
+    last = client.get(f"/explain/taluk/Madikeri/{days[-1]['date']}").json()
+    assert 0 <= last["flood_risk_probability"] <= 1
+
+
+def test_explain_taluk_day_rejects_bad_input(client):
+    assert client.get("/explain/taluk/Atlantis/2026-01-01").status_code == 404
+    assert client.get("/explain/taluk/Madikeri/1999-01-01").status_code == 404

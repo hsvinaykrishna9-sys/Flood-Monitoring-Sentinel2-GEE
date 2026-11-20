@@ -136,6 +136,13 @@ Held-out test results (`reports/model_comparison_taluk*.csv`):
 ### 6. Explainability
 Every single-day prediction is explained with **SHAP** (TreeExplainer, exact for XGBoost) — the top features that pushed that day's risk up or down, not just a bare probability.
 
+**"Why this risk level?" on the dashboard (plain language).** The public cannot read feature names such as `runoff_lag1`, so the dashboard shows the reasons in everyday words (`src/models/explain_plain.py`):
+
+* SHAP measures how much each of the model's 14 (district) or 17 (per taluk) inputs pushed that day's prediction up or down. SHAP values are additive, so related inputs are added together into **six everyday factors**: water running off the ground, recent rainfall, how wet the ground is, time of year, recent air conditions, and the shape of the land (per taluk only). Each factor's push is the exact total of its inputs' pushes, so nothing is approximated.
+* Each factor gets one sentence built from the real values behind that day, compared with what is usual for the same calendar month (for example "about 96 mm of water ran off the ground, much higher than the usual 14 mm for August"), plus a headline such as "High risk (100%), mainly because a lot of water was already running off the ground."
+* The reasons stay hidden until someone presses the "Why this risk level?" button (and it is only requested from the server at that moment). The button appears under the gauge on the main card and inside the popup for any day of the 16-day outlook or any past date; pressing it again hides the reasons. Factors with little effect are collapsed into one line. Days that rely on trend-projected inputs carry a caution note.
+* API: `GET /explain/taluk/{taluk}/{date}` for any outlook day; a `why` block is also returned by `/predict/today`, `/predict/historical/{date}` and `/predict/taluk/historical/{date}` (the original technical `explanation` field is unchanged).
+
 ### 7. Live Prediction & Alerts (`src/models/predict_daily.py`, `predict_taluk.py`)
 * Genuine day-ahead forecast for "today," using only already-known data
 * 10-day outlook that pulls a real rainfall/temperature/humidity/wind forecast from the Open-Meteo API where available, clearly tagged `[live]` vs `[trend]` (trend-projected) per day
