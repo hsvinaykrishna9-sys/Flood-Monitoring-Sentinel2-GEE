@@ -16,16 +16,19 @@ from train_models import chronological_split
 COMPARISON_PATH = "reports/model_comparison.csv"
 
 
-def test_train_test_split_has_no_leakage():
+def test_train_validation_test_split_has_no_leakage():
     df = build_features()
-    train, test = chronological_split(df)
+    train, val, test = chronological_split(df)
 
     # chronological_split resets each frame's index (0..n-1), so the split
-    # itself is verified by month coverage, not raw index values: every
-    # calendar month in train must come strictly before every month in test,
-    # and no month should appear in both.
-    assert train["year_month"].max() < test["year_month"].min()
-    assert set(train["year_month"]).isdisjoint(set(test["year_month"]))
+    # itself is verified by month coverage, not raw index values: train must
+    # end before validation starts, validation before test starts, and no
+    # month may appear in two splits.
+    assert train["year_month"].max() < val["year_month"].min()
+    assert val["year_month"].max() < test["year_month"].min()
+    assert set(train["year_month"]).isdisjoint(val["year_month"])
+    assert set(val["year_month"]).isdisjoint(test["year_month"])
+    assert len(train) + len(val) + len(test) == len(df)
 
 
 def test_all_models_beat_random_guess_baseline():

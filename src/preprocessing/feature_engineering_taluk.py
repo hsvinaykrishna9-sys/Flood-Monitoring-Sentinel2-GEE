@@ -83,7 +83,9 @@ def add_lag_and_rolling_features(df):
     return df
 
 
-def build_label(df, train_frac=0.8):
+# Must match TRAIN_FRAC in train_models_taluk.py (70% train / 10% validation /
+# 20% test), so each taluk's threshold comes from training-period runoff only.
+def build_label(df, train_frac=0.7):
     thresholds = {}
     df["flood_risk"] = 0
     for taluk in TALUKS:

@@ -4,12 +4,13 @@ shared across all 3 taluks, using real terrain features (elevation,
 slope, TWI) that vary by location - so the model can learn that terrain
 itself modulates flood risk, not just weather.
 
-Chronological split: the same date cutoff is used across all 3 taluks
+Chronological 70/10/20 train/validation/test split: the same date cutoffs is used across all 3 taluks
 (not per-taluk row count), so no taluk's "future" leaks into another
 taluk's "past" via a misaligned split.
 
 Outputs:
   reports/model_comparison_taluk.csv          (overall test metrics)
+  reports/model_comparison_taluk_validation.csv (overall validation metrics)
   reports/model_comparison_taluk_by_taluk.csv (metrics broken out per taluk)
 """
 
@@ -28,13 +29,20 @@ from feature_engineering_taluk import FEATURE_COLUMNS, TALUKS, run as build_feat
 RANDOM_STATE = 42
 
 
-def chronological_split(df, train_frac=0.8):
+TRAIN_FRAC, VAL_FRAC = 0.70, 0.10  # remaining 20% is the test set
+
+
+def chronological_split(df, train_frac=TRAIN_FRAC, val_frac=VAL_FRAC):
     dates = sorted(df["date"].unique())
-    cutoff = dates[int(len(dates) * train_frac)]
-    train = df[df["date"] < cutoff].reset_index(drop=True)
-    test = df[df["date"] >= cutoff].reset_index(drop=True)
-    assert train["date"].max() < test["date"].min()
-    return train, test, cutoff
+    n = len(dates)
+    cut_val = dates[int(n * train_frac)]
+    cut_test = dates[int(n * (train_frac + val_frac))]
+    train = df[df["date"] < cut_val].reset_index(drop=True)
+    val = df[(df["date"] >= cut_val) & (df["date"] < cut_test)].reset_index(drop=True)
+    test = df[df["date"] >= cut_test].reset_index(drop=True)
+    assert train["date"].max() < val["date"].min()
+    assert val["date"].max() < test["date"].min()
+    return train, val, test, cut_val, cut_test
 
 
 def evaluate(y_true, y_pred, y_score):
@@ -49,26 +57,40 @@ def evaluate(y_true, y_pred, y_score):
 
 def run():
     df = build_features()
-    train, test, cutoff = chronological_split(df)
-    print(f"Chronological split at {cutoff.date()}: {len(train)} train rows, {len(test)} test rows")
+    train, val, test, cut_val, cut_test = chronological_split(df)
+    print(f"Chronological 70/10/20 split: train < {cut_val.date()} ({len(train)} rows), "
+          f"validation < {cut_test.date()} ({len(val)}), test >= {cut_test.date()} ({len(test)})")
 
     X_train, y_train = train[FEATURE_COLUMNS].values, train["flood_risk"].values
+    X_val, y_val = val[FEATURE_COLUMNS].values, val["flood_risk"].values
     X_test, y_test = test[FEATURE_COLUMNS].values, test["flood_risk"].values
 
+    # One model with fixed hyperparameters and nothing tuned, so there is no
+    # model selection for the validation set to do here; it is scored and
+    # reported for consistency with the daily pipeline and as a stability check.
     xgb = XGBClassifier(n_estimators=300, max_depth=4, learning_rate=0.1,
                          eval_metric="logloss", random_state=RANDOM_STATE)
     xgb.fit(X_train, y_train)
+
+    score_val = xgb.predict_proba(X_val)[:, 1]
+    validation = evaluate(y_val, (score_val > 0.5).astype(int), score_val)
+
     score = xgb.predict_proba(X_test)[:, 1]
     pred = (score > 0.5).astype(int)
-
     overall = evaluate(y_test, pred, score)
-    print("\nOverall (all 3 taluks pooled):")
+
+    print("\nValidation (all 3 taluks pooled):")
+    for k, v in validation.items():
+        print(f"  {k}: {v:.3f}")
+    print("\nTest (all 3 taluks pooled):")
     for k, v in overall.items():
         print(f"  {k}: {v:.3f}")
 
     os.makedirs("reports", exist_ok=True)
     pd.DataFrame([overall], index=["XGBoost (spatial, per-taluk)"]).round(3) \
         .to_csv("reports/model_comparison_taluk.csv")
+    pd.DataFrame([validation], index=["XGBoost (spatial, per-taluk)"]).round(3) \
+        .to_csv("reports/model_comparison_taluk_validation.csv")
 
     by_taluk = []
     for t in TALUKS:

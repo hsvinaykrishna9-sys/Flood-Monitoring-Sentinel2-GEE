@@ -118,14 +118,20 @@ Models are fit on the training set only. The **validation set is used to choose 
 ### 5. Spatial / Per-Taluk Model (the real differentiator)
 Terrain data (elevation, slope, TWI) was collected early in the project but was a single whole-district average — useless as a model feature since it can't vary. `src/preprocessing/feature_engineering_taluk.py` and `src/models/train_models_taluk.py` fix this: real per-taluk weather and terrain for Madikeri, Virajpet, and Somwarpet, each taluk's own flood-risk threshold, one XGBoost model trained across all three.
 
+Evaluated with the same chronological **70 / 10 / 20** train / validation / test split as the daily model (cut by calendar date, shared across taluks, so no taluk's future leaks into another's past). The model has fixed hyperparameters and nothing is tuned, so the validation set only serves as a stability check (validation F1 0.790, AUC 0.966).
+
+Held-out test results (`reports/model_comparison_taluk*.csv`):
+
 | Taluk | Accuracy | Precision | Recall | F1 | AUC |
 |---|---|---|---|---|---|
-| Madikeri | 0.947 | 0.857 | 0.788 | 0.821 | 0.975 |
-| Virajpet | 0.954 | 0.818 | 0.808 | 0.813 | 0.976 |
-| Somwarpet | 0.939 | 0.759 | 0.750 | 0.755 | 0.972 |
-| **Overall** | **0.947** | **0.814** | **0.782** | **0.798** | **0.975** |
+| Madikeri | 0.948 | 0.851 | 0.808 | 0.829 | 0.973 |
+| Virajpet | 0.943 | 0.787 | 0.747 | 0.766 | 0.970 |
+| Somwarpet | 0.940 | 0.768 | 0.768 | 0.768 | 0.974 |
+| **Overall** | **0.944** | **0.805** | **0.777** | **0.791** | **0.972** |
 
-`elevation_m` ranks **2nd of 17 features** by importance, right after `runoff_lag1` — real confirmation that terrain genuinely modulates flood risk once it varies spatially.
+`elevation_m` ranks 2nd of 17 features by importance, right after `runoff_lag1`, but `twi` ranks 16th and `slope_degrees` has zero importance. Importance alone does not show that terrain helps: a direct ablation (same model without the three terrain features) scores F1 0.783 / AUC 0.970 versus 0.791 / 0.972 with them, a gap too small to call real on this short test period. Terrain's value here is suggestive, not proven.
+
+**Monthly model (original pipeline, `train_models.py`):** also moved to the 70/10/20 split (65 / 9 / 19 months). With only 93 months, the 9-month validation set has almost no flood months, so every model scores F1 = 0 on it and it cannot select a model; the script reports "inconclusive" rather than naming one. Treat the monthly comparison as an illustration of the pipeline, not a result.
 
 ### 6. Explainability
 Every single-day prediction is explained with **SHAP** (TreeExplainer, exact for XGBoost) — the top features that pushed that day's risk up or down, not just a bare probability.
@@ -230,7 +236,7 @@ Flood-Monitoring-Sentinel2-GEE/
 │   │   └── eda_daily.py                 # outlier/correlation/imbalance/distribution EDA
 │   │
 │   ├── models/
-│   │   ├── train_models.py              # monthly 6-model comparison
+│   │   ├── train_models.py              # monthly 6-model comparison (70/10/20)
 │   │   ├── train_models_daily.py        # daily 8-model comparison
 │   │   ├── train_models_taluk.py        # spatial per-taluk model
 │   │   ├── predict.py                   # monthly live prediction
