@@ -131,36 +131,52 @@ class FittedModels:
     """All 8 models fit on one training frame; predict() scores any other
     frame (validation, test, or a cross-validation fold) the same way."""
 
-    def __init__(self, train, val_for_curves=None):
+    def __init__(self, train, val_for_curves=None, oversample=False):
         X_train, y_train = train[FEATURE_COLUMNS].values, train["flood_risk"].values
         self.scaler = StandardScaler().fit(X_train)
         X_train_s = self.scaler.transform(X_train)
+
+        # oversample=True applies SMOTE to the TRAINING data only (validation,
+        # test and CV test folds are never resampled). SMOTE runs in
+        # standardized space, since it relies on nearest-neighbour distances.
+        if oversample:
+            from imblearn.over_sampling import SMOTE
+            X_fit_s, y_fit = SMOTE(random_state=RANDOM_STATE).fit_resample(X_train_s, y_train)
+            X_fit = self.scaler.inverse_transform(X_fit_s)
+        else:
+            X_fit, y_fit, X_fit_s = X_train, y_train, X_train_s
         self.thresh = tune_runoff_threshold(train)
 
         self.rf = RandomForestClassifier(n_estimators=300, max_depth=6,
-                                         random_state=RANDOM_STATE).fit(X_train, y_train)
+                                         random_state=RANDOM_STATE).fit(X_fit, y_fit)
 
         self.xgb = XGBClassifier(n_estimators=300, max_depth=4, learning_rate=0.1,
                                  eval_metric="logloss", random_state=RANDOM_STATE)
         if val_for_curves is not None:
             # eval_set only records per-round train/validation log loss
-            self.xgb.fit(X_train, y_train, verbose=False, eval_set=[
-                (X_train, y_train),
+            self.xgb.fit(X_fit, y_fit, verbose=False, eval_set=[
+                (X_fit, y_fit),
                 (val_for_curves[FEATURE_COLUMNS].values, val_for_curves["flood_risk"].values),
             ])
             self.xgb_curves = self.xgb.evals_result()
         else:
-            self.xgb.fit(X_train, y_train)
+            self.xgb.fit(X_fit, y_fit)
             self.xgb_curves = None
 
         self.svm = SVC(kernel="rbf", probability=True,
-                       random_state=RANDOM_STATE).fit(X_train_s, y_train)
+                       random_state=RANDOM_STATE).fit(X_fit_s, y_fit)
         self.logreg = LogisticRegression(max_iter=1000,
-                                         random_state=RANDOM_STATE).fit(X_train_s, y_train)
+                                         random_state=RANDOM_STATE).fit(X_fit_s, y_fit)
         # Ridge: genuine regression on continuous runoff_mm, thresholded afterwards
         self.ridge = Ridge(alpha=1.0, random_state=RANDOM_STATE).fit(X_train_s, train["runoff_mm"].values)
 
         X_train_seq, y_train_seq = make_sequences(X_train_s, y_train)
+        if oversample:
+            # SMOTE on flattened 7-day windows, then reshaped. Synthetic
+            # windows interpolate between real ones; they are not real weather.
+            n, t, f = X_train_seq.shape
+            flat, y_seq_res = SMOTE(random_state=RANDOM_STATE).fit_resample(X_train_seq.reshape(n, t * f), y_train_seq)
+            X_train_seq, y_train_seq = flat.reshape(-1, t, f), y_seq_res
         X_val_seq = y_val_seq = None
         if val_for_curves is not None:
             X_val_s = self.scaler.transform(val_for_curves[FEATURE_COLUMNS].values)
