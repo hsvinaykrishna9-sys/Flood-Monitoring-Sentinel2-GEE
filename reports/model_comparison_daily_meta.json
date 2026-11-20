@@ -1,18 +1,43 @@
 {
+  "split": "chronological 70/10/20 (train/validation/test)",
   "n_total_rows": 28014,
-  "n_train": 22411,
-  "n_test": 5603,
-  "n_test_lstm": 5597,
-  "positive_rate_test": 0.17151525968231304,
-  "runoff_threshold_mm": 6.036207282484117,
-  "best_model_by_auc": "LSTM",
-  "date_range": [
+  "n_train": 19609,
+  "n_validation": 2801,
+  "n_test": 5604,
+  "train_dates": [
     "1950-01-09",
+    "2003-09-16"
+  ],
+  "validation_dates": [
+    "2003-09-17",
+    "2011-05-18"
+  ],
+  "test_dates": [
+    "2011-05-19",
     "2026-09-20"
   ],
+  "positive_rate_validation": 0.16529810781863621,
+  "positive_rate_test": 0.17433975731620271,
+  "runoff_threshold_mm": 5.970801042238541,
+  "selection_metric": "validation F1",
+  "selected_model": "LSTM",
+  "selected_model_test_metrics": {
+    "Accuracy": 0.942,
+    "Precision": 0.862,
+    "Recall": 0.796,
+    "F1": 0.828,
+    "AUC": 0.978
+  },
   "ridge_regression_continuous_runoff": {
-    "mae_mm": 1.567131812452904,
-    "rmse_mm": 3.9677175961018176,
-    "r2": 0.6849067685617146
+    "val": {
+      "mae_mm": 1.480967953698456,
+      "rmse_mm": 3.5353233832177695,
+      "r2": 0.6842888853781303
+    },
+    "test": {
+      "mae_mm": 1.5698909133390218,
+      "rmse_mm": 3.970019323186152,
+      "r2": 0.6844982823248601
+    }
   }
 }
