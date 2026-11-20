@@ -1,9 +1,9 @@
-Model,Accuracy,Precision,Recall,F1,AUC
-Baseline (Runoff Persistence),0.936,0.835,0.781,0.808,0.968
-Random Forest,0.943,0.863,0.79,0.825,0.976
-XGBoost,0.945,0.855,0.821,0.838,0.977
-SVM,0.943,0.878,0.773,0.822,0.957
-Logistic Regression,0.941,0.859,0.785,0.82,0.975
-Ridge Regression (thresholded),0.934,0.785,0.846,0.814,0.972
-Ensemble (RF+XGB+SVM),0.944,0.876,0.785,0.828,0.977
-LSTM,0.942,0.846,0.813,0.829,0.978
+Model,Accuracy,Precision,Recall,F1,AUC,LogLoss
+Baseline (Runoff Persistence),0.937,0.841,0.786,0.813,0.968,
+Random Forest,0.942,0.867,0.789,0.826,0.976,0.145
+XGBoost,0.941,0.849,0.809,0.828,0.976,0.146
+SVM,0.94,0.885,0.756,0.816,0.953,0.175
+Logistic Regression,0.94,0.862,0.783,0.821,0.975,0.154
+Ridge Regression (thresholded),0.934,0.792,0.843,0.817,0.972,
+Ensemble (RF+XGB+SVM),0.945,0.88,0.792,0.834,0.976,0.146
+LSTM,0.942,0.862,0.796,0.828,0.978,0.141

@@ -79,7 +79,9 @@ def add_lag_and_rolling_features(df):
     return df
 
 
-def build_label(df, train_frac=0.8):
+# Must match TRAIN_FRAC in train_models.py (70% train / 10% validation / 20% test),
+# so the NDWI cutoff comes from training-period months only.
+def build_label(df, train_frac=0.7):
     n_train = int(len(df) * train_frac)
     threshold = df["ndwi_mean"].iloc[:n_train].quantile(2 / 3)
     df["flood_risk"] = (df["ndwi_mean"] > threshold).astype(int)

@@ -78,9 +78,11 @@ def add_lag_and_rolling_features(df):
     return df
 
 
-def build_label(df, train_frac=0.8):
+# Must match TRAIN_FRAC in train_models_daily.py, so the label threshold is
+# derived from the training years only - never the validation or test years.
+def build_label(df, train_frac=0.7, quantile=0.85):
     n_train = int(len(df) * train_frac)
-    threshold = df["runoff_mm"].iloc[:n_train].quantile(0.85)
+    threshold = df["runoff_mm"].iloc[:n_train].quantile(quantile)
     df["flood_risk"] = (df["runoff_mm"] > threshold).astype(int)
     return df, threshold
 

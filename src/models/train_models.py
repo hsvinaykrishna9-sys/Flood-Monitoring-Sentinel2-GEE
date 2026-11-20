@@ -9,8 +9,11 @@ IMPORTANT CAVEATS (read before presenting these numbers):
   * The target `flood_risk` is a proxy label derived from NDWI (see
     src/preprocessing/feature_engineering.py docstring), not a verified
     historical flood record.
-  * The split is chronological (not shuffled) to respect the time-series
-    nature of the data and avoid look-ahead leakage.
+  * The split is chronological (not shuffled) 70/10/20 train/validation/test
+    to respect the time-series nature of the data and avoid look-ahead
+    leakage. With only 93 rows the validation set is about 9 months, far too
+    small to pick a model reliably - the selection is shown for protocol
+    consistency with the daily pipeline, not as evidence one model is better.
 
 Outputs:
   reports/model_comparison.csv
@@ -40,16 +43,19 @@ from xgboost import XGBClassifier
 from feature_engineering import FEATURE_COLUMNS, run as build_features
 
 RANDOM_STATE = 42
-TRAIN_FRAC = 0.8
+TRAIN_FRAC = 0.70
+VAL_FRAC = 0.10  # the remaining 0.20 is the test set
+SELECTION_METRIC = "F1"
 SEQ_LEN = 3
 
 
-def chronological_split(df, train_frac=TRAIN_FRAC):
+def chronological_split(df, train_frac=TRAIN_FRAC, val_frac=VAL_FRAC):
     n_train = int(len(df) * train_frac)
-    train_idx = df.index[:n_train]
-    test_idx = df.index[n_train:]
-    assert set(train_idx).isdisjoint(set(test_idx)), "train/test indices overlap"
-    return df.loc[train_idx].reset_index(drop=True), df.loc[test_idx].reset_index(drop=True)
+    n_val = int(len(df) * val_frac)
+    train = df.iloc[:n_train].reset_index(drop=True)
+    val = df.iloc[n_train:n_train + n_val].reset_index(drop=True)
+    test = df.iloc[n_train + n_val:].reset_index(drop=True)
+    return train, val, test
 
 
 def evaluate(name, y_true, y_pred, y_score):
@@ -63,7 +69,7 @@ def evaluate(name, y_true, y_pred, y_score):
     }
 
 
-def rainfall_baseline(train, test):
+def rainfall_baseline(train):
     best_thresh, best_acc = None, -1
     for q in np.linspace(0.1, 0.9, 33):
         thresh = train["rainfall_lag1"].quantile(q)
@@ -71,10 +77,7 @@ def rainfall_baseline(train, test):
         acc = accuracy_score(train["flood_risk"], pred)
         if acc > best_acc:
             best_acc, best_thresh = acc, thresh
-
-    y_pred = (test["rainfall_lag1"] > best_thresh).astype(int)
-    y_score = test["rainfall_lag1"]  # continuous score for AUC ranking
-    return best_thresh, y_pred.values, y_score.values
+    return best_thresh
 
 
 def make_sequences(feature_matrix, labels, seq_len=SEQ_LEN):
@@ -85,7 +88,7 @@ def make_sequences(feature_matrix, labels, seq_len=SEQ_LEN):
     return np.array(X_seq), np.array(y_seq)
 
 
-def train_lstm(X_train_seq, y_train_seq, X_test_seq, y_test_seq):
+def train_lstm(X_train_seq, y_train_seq):
     from tensorflow import keras
     from tensorflow.keras import layers
 
@@ -99,91 +102,84 @@ def train_lstm(X_train_seq, y_train_seq, X_test_seq, y_test_seq):
     ])
     model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
     model.fit(X_train_seq, y_train_seq, epochs=60, batch_size=8, verbose=0)
-
-    y_score = model.predict(X_test_seq, verbose=0).ravel()
-    y_pred = (y_score > 0.5).astype(int)
-    return y_pred, y_score
+    return model
 
 
 def run():
     df = build_features()
-    train, test = chronological_split(df)
+    train, val, test = chronological_split(df)
+    for name, part in (("train", train), ("validation", val), ("test", test)):
+        print(f"{name:<10} {len(part):>4} rows  {part['year_month'].min()} to {part['year_month'].max()}")
 
-    X_train = train[FEATURE_COLUMNS].values
-    y_train = train["flood_risk"].values
-    X_test = test[FEATURE_COLUMNS].values
-    y_test = test["flood_risk"].values
-
+    X_train, y_train = train[FEATURE_COLUMNS].values, train["flood_risk"].values
     scaler = StandardScaler().fit(X_train)
     X_train_s = scaler.transform(X_train)
-    X_test_s = scaler.transform(X_test)
 
-    results = []
-    roc_data = {}
-
-    # --- Baseline: rainfall threshold ---
-    thresh, base_pred, base_score = rainfall_baseline(train, test)
-    results.append(evaluate("Baseline (Rainfall Threshold)", y_test, base_pred, base_score))
-    fpr, tpr, _ = roc_curve(y_test, base_score)
-    roc_data["Baseline (Rainfall Threshold)"] = (fpr, tpr)
+    thresh = rainfall_baseline(train)
     print(f"Baseline rainfall threshold (train-tuned): {thresh:.2f} mm")
-
-    # --- Random Forest ---
-    rf = RandomForestClassifier(n_estimators=300, max_depth=4, random_state=RANDOM_STATE)
-    rf.fit(X_train, y_train)
-    rf_score = rf.predict_proba(X_test)[:, 1]
-    rf_pred = rf.predict(X_test)
-    results.append(evaluate("Random Forest", y_test, rf_pred, rf_score))
-    roc_data["Random Forest"] = roc_curve(y_test, rf_score)[:2]
-
-    # --- XGBoost ---
-    xgb = XGBClassifier(
-        n_estimators=200, max_depth=3, learning_rate=0.1,
-        eval_metric="logloss", random_state=RANDOM_STATE,
-    )
-    xgb.fit(X_train, y_train)
-    xgb_score = xgb.predict_proba(X_test)[:, 1]
-    xgb_pred = xgb.predict(X_test)
-    results.append(evaluate("XGBoost", y_test, xgb_pred, xgb_score))
-    roc_data["XGBoost"] = roc_curve(y_test, xgb_score)[:2]
-
-    # --- SVM ---
-    svm = SVC(kernel="rbf", probability=True, random_state=RANDOM_STATE)
-    svm.fit(X_train_s, y_train)
-    svm_score = svm.predict_proba(X_test_s)[:, 1]
-    svm_pred = svm.predict(X_test_s)
-    results.append(evaluate("SVM", y_test, svm_pred, svm_score))
-    roc_data["SVM"] = roc_curve(y_test, svm_score)[:2]
-
-    # --- Ensemble (soft-voting: RF + XGBoost + SVM) ---
-    ens_score = (rf_score + xgb_score + svm_score) / 3
-    ens_pred = (ens_score > 0.5).astype(int)
-    results.append(evaluate("Ensemble (RF+XGB+SVM)", y_test, ens_pred, ens_score))
-    roc_data["Ensemble (RF+XGB+SVM)"] = roc_curve(y_test, ens_score)[:2]
-
-    # --- LSTM (sequence model, built on the same chronological split) ---
+    rf = RandomForestClassifier(n_estimators=300, max_depth=4, random_state=RANDOM_STATE).fit(X_train, y_train)
+    xgb = XGBClassifier(n_estimators=200, max_depth=3, learning_rate=0.1,
+                        eval_metric="logloss", random_state=RANDOM_STATE).fit(X_train, y_train)
+    svm = SVC(kernel="rbf", probability=True, random_state=RANDOM_STATE).fit(X_train_s, y_train)
     X_train_seq, y_train_seq = make_sequences(X_train_s, y_train)
-    X_test_seq, y_test_seq = make_sequences(X_test_s, y_test)
-    lstm_pred, lstm_score = train_lstm(X_train_seq, y_train_seq, X_test_seq, y_test_seq)
-    results.append(evaluate("LSTM", y_test_seq, lstm_pred, lstm_score))
-    roc_data["LSTM"] = roc_curve(y_test_seq, lstm_score)[:2]
+    lstm = train_lstm(X_train_seq, y_train_seq)
 
-    comparison = pd.DataFrame(results).set_index("Model").round(3)
+    def predict_all(frame):
+        X, y = frame[FEATURE_COLUMNS].values, frame["flood_risk"].values
+        X_s = scaler.transform(X)
+        out = {}
+        base = frame["rainfall_lag1"].values
+        out["Baseline (Rainfall Threshold)"] = (y, (base > thresh).astype(int), base)
+        rf_s = rf.predict_proba(X)[:, 1]
+        out["Random Forest"] = (y, (rf_s > 0.5).astype(int), rf_s)
+        xgb_s = xgb.predict_proba(X)[:, 1]
+        out["XGBoost"] = (y, (xgb_s > 0.5).astype(int), xgb_s)
+        svm_s = svm.predict_proba(X_s)[:, 1]
+        out["SVM"] = (y, (svm_s > 0.5).astype(int), svm_s)
+        ens = (rf_s + xgb_s + svm_s) / 3
+        out["Ensemble (RF+XGB+SVM)"] = (y, (ens > 0.5).astype(int), ens)
+        X_seq, y_seq = make_sequences(X_s, y)
+        lstm_s = lstm.predict(X_seq, verbose=0).ravel()
+        out["LSTM"] = (y_seq, (lstm_s > 0.5).astype(int), lstm_s)
+        return out
+
+    val_preds, test_preds = predict_all(val), predict_all(test)
+    val_table = pd.DataFrame([evaluate(n, *v) for n, v in val_preds.items()]).set_index("Model").round(3)
+    comparison = pd.DataFrame([evaluate(n, *v) for n, v in test_preds.items()]).set_index("Model").round(3)
+    roc_data = {n: roc_curve(v[0], v[2])[:2] for n, v in test_preds.items()}
+
+    os.makedirs("reports", exist_ok=True)
+    val_table.to_csv("reports/model_comparison_validation.csv")
     comparison.to_csv("reports/model_comparison.csv")
-    print("\n" + comparison.to_string())
+    # With ~9 validation months and almost no flood months in them, the models
+    # often tie (F1 = 0 for all). Naming a winner from a tie would be arbitrary.
+    scores = val_table[SELECTION_METRIC]
+    selected = scores.idxmax() if scores.max() > 0 and scores.nunique() > 1 else None
+
+    print("\nVALIDATION set (used to pick the model):")
+    print(val_table.to_string())
+    if selected is None:
+        print(f"\nValidation {SELECTION_METRIC} cannot separate the models (validation set too small); "
+              "no model selected.")
+    else:
+        print(f"\nSelected by validation {SELECTION_METRIC}: {selected}")
+    print("\nTEST set (held out, reported once):")
+    print(comparison.to_string())
 
     best_model = comparison["AUC"].idxmax()
-    print(f"\nBest model by AUC: {best_model} (AUC={comparison.loc[best_model, 'AUC']:.3f})")
-
     with open("reports/model_comparison_meta.json", "w") as f:
         json.dump({
+            "split": "chronological 70/10/20 (train/validation/test)",
             "n_total_rows": int(len(df)),
             "n_train": int(len(train)),
+            "n_validation": int(len(val)),
             "n_test": int(len(test)),
-            "n_test_lstm": int(len(y_test_seq)),
-            "positive_rate_test": float(np.mean(y_test)),
+            "positive_rate_test": float(test["flood_risk"].mean()),
             "rainfall_threshold_mm": float(thresh),
-            "best_model_by_auc": best_model,
+            "selection_metric": f"validation {SELECTION_METRIC}",
+            "selected_model": selected if selected is not None else "inconclusive (validation set too small)",
+            "best_model_by_test_auc": best_model,
+            "caveat": "validation set is ~9 months; too small for reliable model selection",
         }, f, indent=2)
 
     # --- Plots ---

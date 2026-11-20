@@ -1,0 +1,2 @@
+,Accuracy,Precision,Recall,F1,AUC
+"XGBoost (spatial, per-taluk)",0.931,0.795,0.785,0.79,0.966

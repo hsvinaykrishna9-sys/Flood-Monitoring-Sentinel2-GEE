@@ -1,0 +1,9 @@
+Model,F1_point,F1_CI95_low,F1_CI95_high,AUC_CI95_low,AUC_CI95_high,F1_minus_XGBoost_CI95_low,F1_minus_XGBoost_CI95_high,P(F1 > XGBoost)
+Baseline (Runoff Persistence),0.813,0.776,0.846,0.959,0.975,-0.03,-0.001,0.02
+Random Forest,0.826,0.791,0.857,0.968,0.982,-0.015,0.012,0.42
+XGBoost,0.828,0.792,0.859,0.969,0.983,0.0,0.0,0.0
+SVM,0.816,0.778,0.85,0.938,0.963,-0.025,0.002,0.05
+Logistic Regression,0.821,0.784,0.851,0.967,0.981,-0.022,0.006,0.14
+Ridge Regression (thresholded),0.817,0.777,0.849,0.963,0.979,-0.026,0.002,0.05
+Ensemble (RF+XGB+SVM),0.834,0.8,0.863,0.968,0.982,-0.005,0.018,0.81
+LSTM,0.828,0.791,0.859,0.97,0.983,-0.011,0.013,0.5

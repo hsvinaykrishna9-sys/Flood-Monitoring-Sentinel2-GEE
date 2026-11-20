@@ -1,9 +1,13 @@
 {
+  "split": "chronological 70/10/20 (train/validation/test)",
   "n_total_rows": 93,
-  "n_train": 74,
+  "n_train": 65,
+  "n_validation": 9,
   "n_test": 19,
-  "n_test_lstm": 17,
   "positive_rate_test": 0.5789473684210527,
-  "rainfall_threshold_mm": 265.7650000000001,
-  "best_model_by_auc": "SVM"
+  "rainfall_threshold_mm": 262.3,
+  "selection_metric": "validation F1",
+  "selected_model": "inconclusive (validation set too small)",
+  "best_model_by_test_auc": "SVM",
+  "caveat": "validation set is ~9 months; too small for reliable model selection"
 }
