@@ -40,14 +40,38 @@ def test_daily_flood_risk_label_is_binary():
 
 
 def test_daily_chronological_split_has_no_leakage():
-    # chronological_split resets each frame's index (0..n-1), same as the
-    # monthly version's split - so leakage is checked by date coverage,
-    # not raw index values (those always "overlap" by construction)
+    # chronological_split resets each frame's index (0..n-1), so leakage is
+    # checked by date coverage, not raw index values (those always "overlap"
+    # by construction). Train must end before validation starts, and
+    # validation before the test set starts.
     from train_models_daily import chronological_split
     df = build_features()
-    train, test = chronological_split(df)
-    assert train["date"].max() < test["date"].min()
-    assert set(train["date"]).isdisjoint(set(test["date"]))
+    train, val, test = chronological_split(df)
+    assert train["date"].max() < val["date"].min()
+    assert val["date"].max() < test["date"].min()
+    assert set(train["date"]).isdisjoint(val["date"])
+    assert set(val["date"]).isdisjoint(test["date"])
+    assert len(train) + len(val) + len(test) == len(df)
+
+
+def test_daily_split_proportions_are_70_10_20():
+    from train_models_daily import chronological_split
+    df = build_features()
+    train, val, test = chronological_split(df)
+    n = len(df)
+    assert abs(len(train) / n - 0.70) < 0.01
+    assert abs(len(val) / n - 0.10) < 0.01
+    assert abs(len(test) / n - 0.20) < 0.01
+
+
+def test_flood_label_threshold_uses_training_years_only():
+    # the 85th-percentile runoff cutoff must come from the training slice
+    # (first 70%), so no validation/test-period runoff influences the label
+    from feature_engineering_daily import load_raw, add_temporal_features, add_lag_and_rolling_features, build_label
+    df = add_lag_and_rolling_features(add_temporal_features(load_raw()))
+    _, threshold = build_label(df.copy())
+    expected = df["runoff_mm"].iloc[: int(len(df) * 0.7)].quantile(0.85)
+    assert threshold == expected
 
 
 def test_all_daily_models_beat_random_guess_baseline():
