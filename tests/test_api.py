@@ -110,6 +110,10 @@ def test_models_comparison(client):
     rows = r.json()
     assert len(rows) == 8
     assert any(row["Model"] == "XGBoost" for row in rows)
+    # models without a probability output have no log loss: null, not NaN
+    baseline = next(r for r in rows if r["Model"].startswith("Baseline"))
+    assert baseline["LogLoss"] is None
+    assert next(r for r in rows if r["Model"] == "XGBoost")["LogLoss"] > 0
 
 
 def test_api_info_moved_off_root(client):

@@ -14,7 +14,7 @@ Kodagu is one of the most flood-prone districts in Karnataka, particularly durin
 
 ## 🎯 Objectives
 
-* Build a **day-ahead flood-risk classifier** using real historical weather/hydrology data, with no data leakage (strict chronological train/test split, lagged features only)
+* Build a **day-ahead flood-risk classifier** using real historical weather/hydrology data, with no data leakage (strict chronological train/validation/test split, lagged features only)
 * Compare multiple ML approaches — tree ensembles, linear/regression baselines, kernel methods, and a sequence model — on identical data and evaluation, not just pick one algorithm
 * Explain every prediction (SHAP feature attribution), not just output a bare probability
 * Extend beyond a single-point model to **spatial, per-region risk** using real terrain (elevation, slope, TWI)
@@ -63,23 +63,47 @@ Kodagu is one of the most flood-prone districts in Karnataka, particularly durin
 
 ### 3. Feature Engineering (no same-day leakage)
 * Every feature used to predict day *t* comes only from day *t-1* and earlier: lagged rainfall/runoff/soil-moisture/temperature/humidity/wind, 3-day and 7-day rolling averages, a rainfall × soil-moisture interaction term, and day-of-year seasonality (sin/cos encoding)
-* Chronological (never random) train/test split, with an explicit assertion that train and test indices never overlap
+* Chronological (never random) 70/10/20 train/validation/test split, with tests asserting the three date ranges never overlap
+* The flood-label runoff threshold (85th percentile) is computed from the training years only, so no validation- or test-period data influences the labels
 
 ### 4. Model Training & Comparison (`src/models/train_models_daily.py`)
-Eight models trained and evaluated identically on the same 76-year dataset, chronological 80/20 split:
+Eight models trained and evaluated identically on the same 76-year dataset, using a **chronological 70 / 10 / 20 split**:
 
-| Model | Accuracy | Precision | Recall | F1 | AUC |
-|---|---|---|---|---|---|
-| Baseline (Runoff Persistence) | 0.936 | 0.835 | 0.781 | 0.808 | 0.968 |
-| Random Forest | 0.943 | 0.863 | 0.790 | 0.825 | 0.976 |
-| **XGBoost (chosen)** | **0.945** | **0.855** | **0.821** | **0.838** | **0.977** |
-| SVM | 0.943 | 0.878 | 0.773 | 0.822 | 0.957 |
-| Logistic Regression | 0.941 | 0.859 | 0.785 | 0.820 | 0.975 |
-| Ridge Regression (thresholded) | 0.934 | 0.785 | 0.846 | 0.814 | 0.972 |
-| Ensemble (RF+XGB+SVM) | 0.944 | 0.876 | 0.785 | 0.828 | 0.977 |
-| LSTM | 0.942 | 0.846 | 0.813 | 0.829 | 0.978 |
+| Split | Share | Dates | Days |
+|---|---|---|---|
+| Train | 70% | 1950-01 to 2003-09 | 19,609 |
+| Validation | 10% | 2003-09 to 2011-05 | 2,801 |
+| Test | 20% | 2011-05 to 2026-09 | 5,604 |
 
-**XGBoost** was chosen: best F1 and Recall among the classification models, near-best AUC, and gives interpretable feature importances.
+Models are fit on the training set only. The **validation set is used to choose the model** (by F1); the **test set is scored once** to report final performance. Choosing a winner by looking at test scores would make the test result optimistic, so the two roles are kept separate. The split is chronological, never shuffled, so no future weather leaks into training.
+
+**Held-out test set results** (`reports/model_comparison_daily.csv`; log loss = cross-entropy):
+
+| Model | Accuracy | Precision | Recall | F1 | AUC | Log loss |
+|---|---|---|---|---|---|---|
+| Baseline (Runoff Persistence) | 0.937 | 0.841 | 0.786 | 0.813 | 0.968 | n/a |
+| Random Forest | 0.942 | 0.867 | 0.789 | 0.826 | 0.976 | 0.145 |
+| **XGBoost (deployed)** | 0.941 | 0.849 | 0.809 | 0.828 | 0.976 | 0.146 |
+| SVM | 0.940 | 0.885 | 0.756 | 0.816 | 0.953 | 0.175 |
+| Logistic Regression | 0.940 | 0.862 | 0.783 | 0.821 | 0.975 | 0.154 |
+| Ridge Regression (thresholded) | 0.934 | 0.792 | 0.843 | 0.817 | 0.972 | n/a |
+| Ensemble (RF+XGB+SVM) | 0.945 | 0.880 | 0.792 | 0.834 | 0.976 | 0.146 |
+| LSTM | 0.942 | 0.862 | 0.796 | 0.828 | 0.978 | 0.141 |
+
+**Validation loss and overfitting** (`reports/validation_loss_curves_daily.png`): XGBoost's validation log loss bottoms out around boosting round 80-100 (about 0.148) and then rises slightly while training loss keeps falling; the LSTM shows the same pattern after about epoch 12. This is mild overfitting, not a collapse, and the loss gap is small.
+
+**Cross-validation** (`reports/cross_validation_daily.csv`): 5-fold *expanding-window* (forward-chaining) cross-validation on all pre-test data - each fold trains only on days before the days it is scored on, because ordinary shuffled k-fold would train on future years. Mean +/- std across folds:
+
+| Model | F1 | AUC |
+|---|---|---|
+| Random Forest | 0.812 +/- 0.047 | 0.979 +/- 0.005 |
+| XGBoost | 0.811 +/- 0.042 | 0.978 +/- 0.003 |
+| Ensemble (RF+XGB+SVM) | 0.815 +/- 0.045 | 0.979 +/- 0.004 |
+| LSTM | 0.804 +/- 0.035 | 0.979 +/- 0.003 |
+| SVM | 0.807 +/- 0.039 | 0.953 +/- 0.011 |
+| Logistic Regression | 0.796 +/- 0.038 | 0.976 +/- 0.004 |
+
+**Which model, honestly:** the top models are statistically indistinguishable. Selecting on validation F1 picks the LSTM (0.794 vs XGBoost 0.791), and on the test set the ensemble has the highest F1 (0.834), but every gap between the leading models is smaller than the fold-to-fold standard deviation (about 0.04 F1). **XGBoost is deployed** for practical reasons rather than a statistically significant accuracy win: it trains in seconds, needs no GPU or TensorFlow, serves quickly from a small API, and supports exact SHAP explanations.
 
 **Class imbalance (SMOTE), tested and not adopted:** SMOTE was tried on the training set only; it substantially raises Recall (up to ~93%) but consistently lowers Precision and F1 across every model tested, on both the original 8-year and the full 76-year dataset. The better fix turned out to be more real data, not synthetic oversampling — confirmed by comparing results before/after extending the dataset from 8 to 76 years (Recall rose from ~51% to ~82% on Random Forest from data volume alone).
 
@@ -178,7 +202,7 @@ Every single-day prediction is explained with **SHAP** (TreeExplainer, exact for
 * **Matplotlib** — EDA plots, ROC curves, model comparison charts
 
 ### Testing
-* **pytest**, **httpx** (FastAPI TestClient) — 34 automated tests
+* **pytest**, **httpx** (FastAPI TestClient) — 40 automated tests
 
 ---
 
@@ -238,12 +262,12 @@ Flood-Monitoring-Sentinel2-GEE/
 
 * **28,014** real daily weather/hydrology records (1950-2026) after feature engineering, whole-district
 * **9,534** real per-taluk records (2018-2026) across 3 regions
-* **8 models compared** identically; **XGBoost chosen** (F1 0.838, AUC 0.977, best Recall/F1 of the classifiers tested)
-* **SMOTE tested and rejected** for the final pipeline — hurts F1/Precision on this dataset; more real data was the actual fix
+* **8 models compared** identically on a chronological 70/10/20 split with 5-fold expanding-window cross-validation; the top models are statistically tied (test F1 0.826-0.834, AUC 0.976-0.978); **XGBoost deployed** (test F1 0.828, AUC 0.976) for speed, simplicity and SHAP support
+* **SMOTE tested and rejected** (evaluated under the earlier 80/20 split) for the final pipeline — hurts F1/Precision on this dataset; more real data was the actual fix
 * **Satellite fusion tested** — NDVI/NDWI rank 4th/5th by importance but don't improve headline metrics; documented, not adopted
 * **Spatial per-taluk model**: AUC 0.975 overall, elevation ranks 2nd of 17 features — real, demonstrated proof that terrain matters once it can vary
 * **Every prediction is explainable** (SHAP) and **every multi-day risk period is alerted** (Watch/Warning banner), not just a bare number
-* **34 automated tests** (pytest) covering data integrity, no-leakage splits, label validity, geographic boundary logic, and every API/dashboard endpoint
+* **40 automated tests** (pytest) covering data integrity, no-leakage splits, label validity, geographic boundary logic, and every API/dashboard endpoint
 * **A live dashboard** styled after a phone weather app — real browser-GPS current location or search, live weather for anywhere worldwide, and the flood-risk card specifically inside Kodagu — served by the same API, one deployable service
 * **A REST API** (FastAPI) exposing every trained model as a live endpoint, plus a weather-app-style CLI that works for any location worldwide and adds flood-risk prediction specifically inside Kodagu district
 

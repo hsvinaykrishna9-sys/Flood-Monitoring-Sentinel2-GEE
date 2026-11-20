@@ -475,6 +475,9 @@ def models_comparison():
     if not os.path.exists(path):
         raise HTTPException(404, f"{path} not found.")
     df = pd.read_csv(path)
+    # log loss is blank for models that output runoff in mm rather than a
+    # probability; JSON has no NaN, so send those as null
+    df = df.astype(object).where(df.notna(), None)
     return JSONResponse(df.to_dict(orient="records"))
 
 
