@@ -26,10 +26,15 @@
     "Precision": 0.862,
     "Recall": 0.796,
     "F1": 0.828,
-    "AUC": 0.978
+    "AUC": 0.978,
+    "LogLoss": 0.141
+  },
+  "cross_validation": {
+    "scheme": "expanding-window TimeSeriesSplit, 5 folds",
+    "summary_file": "reports/cross_validation_daily.csv"
   },
   "ridge_regression_continuous_runoff": {
-    "val": {
+    "validation": {
       "mae_mm": 1.480967953698456,
       "rmse_mm": 3.5353233832177695,
       "r2": 0.6842888853781303
