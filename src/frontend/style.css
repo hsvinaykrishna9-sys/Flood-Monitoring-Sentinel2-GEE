@@ -392,6 +392,71 @@ body {
 }
 .history-form button:hover { background: rgba(255, 255, 255, 0.18); }
 
+/* ---------- "Why this risk level?" panel ---------- */
+
+.why { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--glass-border); }
+.why[hidden] { display: none; }
+
+.why-headline {
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--text);
+  margin: 2px 0 16px;
+  max-width: 62ch;
+}
+
+.why-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 12px; }
+
+.why-card {
+  padding: 14px 16px 15px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--glass-border);
+  border-left: 4px solid var(--text-faint);
+}
+.why-card.raises { border-left-color: var(--high); background: linear-gradient(120deg, rgba(255, 92, 92, 0.13), rgba(255, 255, 255, 0.04)); }
+.why-card.lowers { border-left-color: var(--low); background: linear-gradient(120deg, rgba(61, 220, 132, 0.12), rgba(255, 255, 255, 0.04)); }
+
+.why-card-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.why-icon { font-size: 20px; line-height: 1; }
+.why-title { font-size: 14px; font-weight: 700; color: var(--text); flex: 1 1 auto; }
+
+.why-chip {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.why-chip.raises { background: rgba(255, 92, 92, 0.22); color: #ffb0b0; }
+.why-chip.lowers { background: rgba(61, 220, 132, 0.2); color: #9af0c0; }
+
+.why-bar-row { display: flex; align-items: center; gap: 10px; margin: 10px 0 9px; }
+.why-bar { flex: 1; height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.why-bar i { display: block; height: 100%; border-radius: 999px; background: var(--text-faint); }
+.why-card.raises .why-bar i { background: linear-gradient(90deg, #ff9a3d, var(--high)); }
+.why-card.lowers .why-bar i { background: linear-gradient(90deg, #4fd1c5, var(--low)); }
+.why-pct { font-size: 12px; font-weight: 700; color: var(--text-dim); min-width: 34px; text-align: right; }
+
+.why-detail { font-size: 13px; line-height: 1.5; color: var(--text-dim); }
+
+.why-minor { margin-top: 14px; font-size: 12px; color: var(--text-dim); display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.why-minor-chip { padding: 3px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); color: var(--text-dim); cursor: help; }
+
+.why-caption { margin-top: 12px; font-size: 11px; color: var(--text-faint); }
+.why-note { margin-top: 8px; font-size: 12px; color: var(--moderate); }
+.why-loading { font-size: 13px; color: var(--text-dim); padding: 10px 0; }
+
+.why-method { margin-top: 10px; font-size: 12px; color: var(--text-dim); }
+.why-method summary { cursor: pointer; color: var(--accent); }
+.why-method p { margin: 8px 0 0; line-height: 1.5; max-width: 70ch; }
+
+.why-modal { margin-top: 18px; padding-top: 16px; }
+.why-modal .why-headline { font-size: 16px; }
+.why-modal .why-grid { grid-template-columns: 1fr; }
+
 /* Day-detail popup (clicking an outlook bar, or the future-date picker) */
 
 .modal-overlay {
@@ -409,7 +474,9 @@ body {
 
 .modal-box {
   position: relative;
-  width: min(640px, 100%);
+  width: min(680px, 100%);
+  max-height: 92vh;
+  overflow-y: auto;
   background: #141f36;
   border: 1px solid var(--glass-border);
   border-radius: var(--radius);

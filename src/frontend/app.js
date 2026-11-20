@@ -225,6 +225,99 @@ function renderOutlookChart(svg) {
   });
 }
 
+// ---------- "Why this risk level?" (plain-language explanation) ----------
+//
+// The server turns the model's technical SHAP numbers into six everyday factors
+// with one sentence each (see src/models/explain_plain.py). This code only draws
+// them. Text is inserted with textContent, never as HTML.
+
+const WHY_ICONS = { runoff: "\u{1F4A7}", rain: "\u{1F327}️", soil: "\u{1F331}", season: "\u{1F4C5}", weather: "\u{1F321}️", terrain: "⛰️" };
+const WHY_CHIP = { raises: "Pushes the risk up", lowers: "Keeps the risk down" };
+
+function whyEl(tag, className, text) {
+  const e = document.createElement(tag);
+  if (className) e.className = className;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function renderWhy(panel, why) {
+  panel.innerHTML = "";
+  panel.hidden = false;
+  panel.appendChild(whyEl("div", "flood-mini-title", "WHY THIS RISK LEVEL?"));
+  panel.appendChild(whyEl("div", "why-headline", why.headline));
+
+  const main = why.factors.filter((f) => f.direction !== "little");
+  const minor = why.factors.filter((f) => f.direction === "little");
+
+  const grid = whyEl("div", "why-grid");
+  main.forEach((f) => {
+    const card = whyEl("div", "why-card " + f.direction);
+    const top = whyEl("div", "why-card-top");
+    top.appendChild(whyEl("span", "why-icon", WHY_ICONS[f.key] || "•"));
+    top.appendChild(whyEl("span", "why-title", f.title));
+    top.appendChild(whyEl("span", "why-chip " + f.direction, WHY_CHIP[f.direction]));
+    card.appendChild(top);
+
+    const bar = whyEl("div", "why-bar");
+    const fill = whyEl("i");
+    fill.style.width = Math.max(4, f.strength_pct) + "%";
+    bar.appendChild(fill);
+    const barRow = whyEl("div", "why-bar-row");
+    barRow.appendChild(bar);
+    barRow.appendChild(whyEl("span", "why-pct", f.strength_pct + "%"));
+    card.appendChild(barRow);
+
+    card.appendChild(whyEl("div", "why-detail", f.detail));
+    grid.appendChild(card);
+  });
+  panel.appendChild(grid);
+
+  if (minor.length) {
+    const line = whyEl("div", "why-minor");
+    line.appendChild(whyEl("span", "why-minor-label", "Little effect on this result: "));
+    minor.forEach((f, i) => {
+      const chip = whyEl("span", "why-minor-chip", (WHY_ICONS[f.key] || "") + " " + f.title);
+      chip.title = f.detail;
+      line.appendChild(chip);
+    });
+    panel.appendChild(line);
+  }
+
+  panel.appendChild(whyEl("div", "why-caption",
+    "Each bar shows how much that factor influenced this result, out of 100%."));
+  if (why.note) panel.appendChild(whyEl("div", "why-note", why.note));
+
+  const details = whyEl("details", "why-method");
+  details.appendChild(whyEl("summary", null, "How is this worked out?"));
+  details.appendChild(whyEl("p", null, why.method_note));
+  panel.appendChild(details);
+}
+
+function renderWhyLoading(panel) {
+  panel.hidden = false;
+  panel.innerHTML = "";
+  panel.appendChild(whyEl("div", "flood-mini-title", "WHY THIS RISK LEVEL?"));
+  panel.appendChild(whyEl("div", "why-loading", "Working out the reasons…"));
+}
+
+// Fetches the explanation for one taluk on one day of the 16-day outlook.
+// A ticket on the panel makes sure a slow, older answer never overwrites a newer one.
+async function loadWhy(panel, taluk, date) {
+  const ticket = (panel._whyTicket = (panel._whyTicket || 0) + 1);
+  renderWhyLoading(panel);
+  try {
+    const resp = await fetch(`/explain/taluk/${encodeURIComponent(taluk)}/${date}`);
+    if (!resp.ok) throw new Error("request failed");
+    const data = await resp.json();
+    if (ticket !== panel._whyTicket) return;
+    renderWhy(panel, data.why);
+  } catch (err) {
+    if (ticket !== panel._whyTicket) return;
+    panel.hidden = true;
+  }
+}
+
 // ---------- Day-detail popup ----------
 
 const dayModalOverlay = document.getElementById("dayModalOverlay");
@@ -275,6 +368,7 @@ function openDayModal(index) {
   document.getElementById("dayModalTalukTag").textContent = currentTaluk + " taluk";
 
   fillModalMap(day.taluks);
+  loadWhy(document.getElementById("dayModalWhy"), currentTaluk, day.date);
 }
 
 async function openHistoricalModal(dateStr) {
@@ -300,6 +394,9 @@ async function openHistoricalModal(dateStr) {
     document.getElementById("dayModalTalukTag").textContent = (currentTaluk || entry.taluk) + " taluk";
 
     fillModalMap(data.taluks);
+    const modalWhy = document.getElementById("dayModalWhy");
+    modalWhy._whyTicket = (modalWhy._whyTicket || 0) + 1;
+    if (entry.why) renderWhy(modalWhy, entry.why); else modalWhy.hidden = true;
   } catch (err) {
     errorEl.textContent = "Couldn't check that date right now.";
   }
@@ -542,6 +639,7 @@ function render(data) {
     initFloodTalukMap();
     initOutlookChart();
     initClimatologyChart();
+    if (currentTaluk) loadWhy(document.getElementById("whyPanel"), currentTaluk, fr.date);
   } else {
     floodBanner.hidden = true;
   }
